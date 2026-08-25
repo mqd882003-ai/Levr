@@ -1,7 +1,7 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-25 (evening)** — after swipe gestures, notifications, and perf pass.
+> Last updated: **2026-08-25 (night)** — after prod verification + quick-add/owner-picker UX round.
 
 ## What this project is
 
@@ -35,7 +35,7 @@ owner, and closing them out builds each person's delegation history on Team.
 | Swipe gestures on Board rows (right=Done, left=Delete w/ confirm tap, no checkbox) | ✅ Built, device-verified by Dave |
 | Perf: loading skeletons + router staleTimes(30s) + Vercel region pin pdx1 | ✅ Built (verified locally; region pin takes effect on next deploy) |
 | PWA icons (192/512 any, 512 maskable, 180 apple-touch PNGs) | ✅ Generated + wired into manifest/layout |
-| Vercel deploy | ✅ Live (Dave's Vercel account, auto-deploy from GitHub). Health-check on the live URL + deleting /api/env-check still pending — need the URL |
+| Vercel deploy | ✅ Live at **https://levr-six.vercel.app** — health-checked (all routes 200, pdx1 pin active, env fixed after ANTHROPIC_API_KEY was found empty), classification + Tier 2 verified running in production, /api/env-check deleted |
 
 ## What was verified live (2026-08-25, real DB + real Haiku calls, test data cleaned up after)
 
@@ -131,6 +131,21 @@ owner, and closing them out builds each person's delegation history on Team.
   re-filed — every send from it dies with Twilio error 30032. Re-file in Twilio Console with a valid
   website URL if that number is ever wanted as sender; until approved, keep the 503 number.
 
+## UX round from Dave's real usage (2026-08-25 night)
+
+- **Quick-add lands in place**: CaptureBox takes an optional `onCaptured` callback; Board's quick-add
+  no longer navigates after classify (the refetch + skeleton made the board "disappear for a bit").
+  /api/classify now returns `business_name`/`project_name` so the client can render the new row
+  without a refetch. Home still navigates with ?new= highlight.
+- **Owner picker offers everyone**, same-business people first (was same-business only — a dead end
+  for single-person businesses like Yana/TC Dental). Label renamed **"Hand off to"** (Dave's pick over
+  Assign to / Who's on it / Delegate to).
+- Team roster now: Danny (THA) + **Yana (TC Dental Lab)** — Dave added Yana himself from the phone.
+- **Testing gotcha for future sessions**: the hidden Browser-pane suspends requestAnimationFrame, which
+  React 19's Suspense reveal batching waits on — pages look "unhydrated" (no fibers, dead clicks) in
+  pane tests while being perfectly healthy in real browsers. Workaround when testing there:
+  `window.$RV(window.$RB)` to force the reveal, or test on a visible browser/device.
+
 ## Swipe & perf specifics (2026-08-25 evening)
 
 - Board rows have NO checkbox (per levr-swipe-prototype.html): swipe right past ~70px commits Done on
@@ -152,7 +167,5 @@ owner, and closing them out builds each person's delegation history on Team.
    Alternative discussed but undecided: Gmail-dedicated-account approach instead of Resend.
 2. **Toll-free +18773204828**: verification rejected July 2025, never re-filed; SMS sends from the 503
    local number instead (see Notifications specifics).
-3. **Team roster**: only Danny exists — Stella and Chi still need to be added.
-4. **Deployed-app health check**: need the live Vercel URL from Dave; then delete `/api/env-check` (temporary
-   diagnostic, currently still deployed) and confirm env vars + region pin.
-5. Slack channel needs `SLACK_WEBHOOK_URL` whenever a workspace is actually connected.
+3. **Team roster**: Danny + Yana exist — Stella and Chi still need to be added.
+4. Slack channel needs `SLACK_WEBHOOK_URL` whenever a workspace is actually connected.
