@@ -78,7 +78,8 @@ owner, and closing them out builds each person's delegation history on Team.
 - Dev server: Browser-pane preview config **`levr-dev`** (D:\Claude\.claude\launch.json) → port **3005**.
 - ⚠ **Gotcha:** `npm run build` while the dev server runs kills the dev server (shared `.next`). Stop dev first.
 - `npm run build` must pass before calling any pass done.
-- Repo: levr lives inside the D:\Claude git repo. **Nothing committed yet.**
+- Repo: levr lives inside the D:\Claude git repo. First commit: `6b352ea` (2026-08-25, Home + Board + schema;
+  `.env.local` excluded, staged diff secret-scanned before committing).
 
 ## Key implementation decisions (why things are the way they are)
 
@@ -101,4 +102,3 @@ owner, and closing them out builds each person's delegation history on Team.
    (Twilio SMS needs its own A2P campaign — separate from the True Home lead-gen campaign; email; optional Slack).
 4. Fix `DATABASE_URL` (right project's password reset, or project restart) → backfill `_migrations`.
 5. Vercel deploy + PNG/apple-touch icons.
-6. First git commit (waiting on Dave's call).
