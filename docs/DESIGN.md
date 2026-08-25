@@ -170,6 +170,10 @@ Warm, direct, second person, zero productivity jargon. Greeting rotates per time
 Approved-identity refinements added in the real build; everything else above still holds.
 
 - **Token nudge:** `--dim` `#9DA1A8` → `#8F949C` (tertiary-text contrast ~2.7:1 → ~3.2:1 on `--bg`; same temperature).
+- **Token nudge:** `--bg` `#F7F5F0` → `#FBF9F4` (Dave asked for a brighter background; same warm hue). Nav backdrop, theme-color, and manifest colors track it.
+- **Quick-add FAB (Board only):** 56px dark circle, fixed bottom-right above the nav (inside the 520px column), opens the Home capture flow in the bottom sheet ("Quick add"); after classify it lands on Board with the usual flash+toast. From `levr-ux-proposals-v2.html`.
+- **Dormant search slot:** 36px `--card-2` circle with a stroke magnifier in the Board and Team topbars; no search yet — tapping toasts "Search is coming soon". Reserved so the topbar never restructures.
+- **Team hint card:** contextual one-liner card above the person list ("Checking in, or adding someone? …"); Team deliberately has no capture box.
 - **Paper grain:** ultra-subtle SVG turbulence baked into the body background (cards sit on top clean).
 - **Time-adaptive home glow:** the ambient blobs shift per greeting band (`morning` warmer amber, `evening` amber+violet, `late` violet-led) via `data-band` on `.home-glow`.
 - **Motion additions** (all expo-out, all collapse under `prefers-reduced-motion`): staggered Home entrance (eyebrow→title→sub→capture→status, ~70ms steps); board rows cascade in (delay capped after 4); checkbox `checkPop` overshoot; nav notch `notchIn` scaleX; toast overshoot entrance; sheet grab-handle widens when open.

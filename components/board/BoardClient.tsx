@@ -12,7 +12,8 @@ import BoardSection from "@/components/board/BoardSection";
 import DoneDrawer from "@/components/board/DoneDrawer";
 import PulseBar from "@/components/board/PulseBar";
 import ScopeChips from "@/components/board/ScopeChips";
-import Sheet from "@/components/sheets/Sheet";
+import CaptureBox from "@/components/capture/CaptureBox";
+import Sheet, { SheetHead } from "@/components/sheets/Sheet";
 import CloseoutSheet, { type CloseoutTarget } from "@/components/sheets/CloseoutSheet";
 import EntrySheet, { type EntrySheetSave } from "@/components/sheets/EntrySheet";
 import Toast, { type ToastState } from "@/components/ui/Toast";
@@ -35,6 +36,7 @@ export default function BoardClient({
   const [flashId, setFlashId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BoardEntry | null>(null);
   const [closeout, setCloseout] = useState<CloseoutTarget | null>(null);
+  const [quickAdd, setQuickAdd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -45,11 +47,18 @@ export default function BoardClient({
     toastTimer.current = setTimeout(() => setToast(null), 2200);
   }, []);
 
+  // Server data is the source of truth after any navigation (including the
+  // quick-add flow pushing /board?new=…, which refetches the page).
+  useEffect(() => {
+    setEntries(initialEntries);
+  }, [initialEntries]);
+
   // Fresh capture: flash + scroll to the new row, announce the filing, clean
   // the URL (requirements §Home: "visibly highlighted at the top ... for a
   // few seconds").
   useEffect(() => {
     if (!newId) return;
+    setQuickAdd(false);
     const entry = initialEntries.find((e) => e.id === newId);
     if (entry) {
       setFlashId(newId);
@@ -167,7 +176,20 @@ export default function BoardClient({
     <section className="screen" aria-label="Board">
       <div className="topbar">
         <h1>Board</h1>
-        <span className="meta">{openCount} open</span>
+        <div className="topbar-right">
+          <button
+            type="button"
+            className="search-icon pressable"
+            aria-label="Search — coming soon"
+            onClick={() => showToast("Search is coming soon")}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+          <span className="meta">{openCount} open</span>
+        </div>
       </div>
       <ScopeChips businesses={businesses} scope={scope} counts={counts} onScope={setScope} />
       <PulseBar entries={scoped} />
@@ -224,11 +246,23 @@ export default function BoardClient({
         onOpen={setEditing}
       />
 
+      <button
+        type="button"
+        className="fab pressable"
+        aria-label="Quick add"
+        onClick={() => setQuickAdd(true)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+
       <Sheet
-        open={Boolean(editing || closeout)}
+        open={Boolean(editing || closeout || quickAdd)}
         onClose={() => {
           if (closeout) setCloseout(null);
-          else setEditing(null);
+          else if (editing) setEditing(null);
+          else setQuickAdd(false);
         }}
       >
         {closeout ? (
@@ -248,6 +282,11 @@ export default function BoardClient({
             onDelete={handleDelete}
             onClose={() => setEditing(null)}
           />
+        ) : quickAdd ? (
+          <>
+            <SheetHead title="Quick add" onClose={() => setQuickAdd(false)} />
+            <CaptureBox />
+          </>
         ) : null}
       </Sheet>
       <Toast toast={toast} />

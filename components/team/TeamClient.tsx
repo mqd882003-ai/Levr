@@ -83,11 +83,28 @@ export default function TeamClient({
     <section className="screen" aria-label="Team">
       <div className="topbar">
         <h1>Team</h1>
-        <span className="meta">
-          {people.length} {people.length === 1 ? "person" : "people"}
-        </span>
+        <div className="topbar-right">
+          <button
+            type="button"
+            className="search-icon pressable"
+            aria-label="Search — coming soon"
+            onClick={() => showToast("Search is coming soon")}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+          <span className="meta">
+            {people.length} {people.length === 1 ? "person" : "people"}
+          </span>
+        </div>
       </div>
       <div className="team">
+        <div className="team-hint">
+          <b>Checking in, or adding someone?</b>
+          Tap a person to see how things have gone or update their notes.
+        </div>
         {people.map((p) => (
           <PersonCard
             key={p.id}

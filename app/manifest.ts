@@ -8,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
       "Talk or type a thought. Levr sorts it into your 20% or hands it off.",
     start_url: "/",
     display: "standalone",
-    background_color: "#F7F5F0",
-    theme_color: "#F7F5F0",
+    background_color: "#FBF9F4",
+    theme_color: "#FBF9F4",
     icons: [
       {
         src: "/icons/icon.svg",
