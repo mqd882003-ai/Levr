@@ -63,12 +63,14 @@ export async function POST(request: Request) {
       businesses.find((b) => b.name === result.business)?.id ?? null;
 
     let projectId: string | null = null;
+    let projectName: string | null = null;
     if (result.project) {
       const existing = projects.find(
         (p) => p.name.toLowerCase() === result.project!.toLowerCase(),
       );
       if (existing) {
         projectId = existing.id;
+        projectName = existing.name;
       } else {
         const created = await db
           .from("projects")
@@ -80,6 +82,7 @@ export async function POST(request: Request) {
           .select()
           .single<Project>();
         projectId = created.data?.id ?? null;
+        projectName = created.data?.name ?? result.project;
       }
     }
 
@@ -102,6 +105,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       entry: updated.data ?? entry,
       classified: true,
+      // Resolved names so the client can render the new row without a refetch.
+      business_name: businesses.find((b) => b.id === businessId)?.name ?? null,
+      project_name: projectName,
     });
   } catch (err) {
     // Entry is already saved — surface it unclassified rather than failing.

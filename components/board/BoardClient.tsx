@@ -20,7 +20,8 @@ import Sheet, { SheetHead } from "@/components/sheets/Sheet";
 import CloseoutSheet, { type CloseoutTarget } from "@/components/sheets/CloseoutSheet";
 import EntrySheet, { type EntrySheetSave } from "@/components/sheets/EntrySheet";
 import Toast, { type ToastState } from "@/components/ui/Toast";
-import type { BoardEntry, Business, Outcome, Person, Verdict } from "@/lib/types";
+import type { CapturedExtras } from "@/components/capture/CaptureBox";
+import type { BoardEntry, Business, Entry, Outcome, Person, Verdict } from "@/lib/types";
 
 export default function BoardClient({
   initialEntries,
@@ -87,6 +88,53 @@ export default function BoardClient({
 
   const patchEntry = (id: string, patch: Partial<BoardEntry>) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+
+  const announceFiling = useCallback(
+    (isLeverage: boolean | null) => {
+      showToast(
+        isLeverage === true
+          ? "Filed under Your 20%"
+          : isLeverage === false
+            ? "Filed under Delegated"
+            : "Needs a quick look",
+        isLeverage === true ? "signal" : isLeverage === false ? "noise" : "bad",
+      );
+    },
+    [showToast],
+  );
+
+  // Quick-add lands the classified entry straight into the list — no
+  // navigation, no skeleton flash (the whole board "disappearing" for a
+  // beat was the old behavior's refetch).
+  const handleQuickCapture = (entry: Entry, extras: CapturedExtras) => {
+    const row: BoardEntry = {
+      id: entry.id,
+      text: entry.text,
+      summary: entry.summary ?? entry.text,
+      businessId: entry.business_id,
+      businessName: extras.businessName,
+      projectId: entry.project_id,
+      projectName: extras.projectName,
+      isLeverage: entry.is_leverage,
+      done: false,
+      suggestedPersonId: entry.suggested_person_id,
+      capturedAt: entry.captured_at,
+      ownerId: null,
+      openDelegationId: null,
+      tier2Status: entry.tier2_status,
+      tier2Reason: entry.tier2_reason,
+      checklist: [],
+    };
+    setEntries((prev) => [row, ...prev]);
+    setQuickAdd(false);
+    if (row.businessId && scope !== "all" && scope !== row.businessId) setScope("all");
+    setFlashId(row.id);
+    announceFiling(row.isLeverage);
+    requestAnimationFrame(() => {
+      document.getElementById(`row-${row.id}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    setTimeout(() => setFlashId(null), 2200);
+  };
 
   const handleToggleDone = async (entry: BoardEntry) => {
     const done = !entry.done;
@@ -347,7 +395,7 @@ export default function BoardClient({
         ) : quickAdd ? (
           <>
             <SheetHead title="Quick add" onClose={() => setQuickAdd(false)} />
-            <CaptureBox />
+            <CaptureBox onCaptured={handleQuickCapture} />
           </>
         ) : reviewOpen ? (
           <ReviewSheet

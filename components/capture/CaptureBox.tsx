@@ -2,8 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { Entry } from "@/lib/types";
 
 const IDLE_STATUS = "Just talk or type. I'll sort out where it goes.";
+
+export interface CapturedExtras {
+  businessName: string | null;
+  projectName: string | null;
+  classified: boolean;
+}
 
 // Minimal typings for the Web Speech API (secondary voice path only — the
 // primary voice path is the phone keyboard's own dictation mic, per
@@ -18,7 +25,14 @@ interface SpeechRecognitionLike {
   onerror: (() => void) | null;
 }
 
-export default function CaptureBox() {
+// With `onCaptured`, the result is handed to the caller (Board quick-add drops
+// the row into the list in place — no navigation, no skeleton flash). Without
+// it, submit navigates to Board with the highlight param (Home behavior).
+export default function CaptureBox({
+  onCaptured,
+}: {
+  onCaptured?: (entry: Entry, extras: CapturedExtras) => void;
+}) {
   const router = useRouter();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -110,11 +124,24 @@ export default function CaptureBox() {
         body: JSON.stringify({ text, source }),
       });
       const data = (await res.json()) as {
-        entry?: { id: string };
+        entry?: Entry;
+        classified?: boolean;
+        business_name?: string | null;
+        project_name?: string | null;
         error?: string;
       };
       if (!res.ok || !data.entry) {
         throw new Error(data.error || "Something went wrong");
+      }
+      if (onCaptured) {
+        setSorting(false);
+        setStatus(IDLE_STATUS);
+        onCaptured(data.entry, {
+          businessName: data.business_name ?? null,
+          projectName: data.project_name ?? null,
+          classified: data.classified ?? false,
+        });
+        return;
       }
       router.push(`/board?new=${data.entry.id}`);
     } catch (err) {
@@ -129,7 +156,7 @@ export default function CaptureBox() {
           : "Couldn't sort that one. Your text is still here — try again.",
       );
     }
-  }, [router, sorting]);
+  }, [router, sorting, onCaptured]);
 
   return (
     <>

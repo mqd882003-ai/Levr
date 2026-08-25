@@ -83,9 +83,13 @@ export default function EntrySheet({
     }
   };
 
-  const candidates = people.filter(
-    (p) => !businessId || !p.business_id || p.business_id === businessId,
-  );
+  // Everyone is offerable (cross-business handoffs are real); people from the
+  // entry's business just list first.
+  const candidates = [...people].sort((a, b) => {
+    const rank = (p: Person) =>
+      businessId && p.business_id === businessId ? 0 : p.business_id ? 2 : 1;
+    return rank(a) - rank(b);
+  });
 
   return (
     <>
@@ -177,7 +181,7 @@ export default function EntrySheet({
       </div>
       {lev === false && (
         <div className="field">
-          <label>Owner</label>
+          <label>Hand off to</label>
           <div className="people-pick">
             {candidates.length ? (
               candidates.map((p) => (
