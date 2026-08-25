@@ -1,7 +1,7 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-25** (after Board pass + design polish pass).
+> Last updated: **2026-08-25 (evening)** — after swipe gestures, notifications, and perf pass.
 
 ## What this project is
 
@@ -20,7 +20,7 @@ owner, and closing them out builds each person's delegation history on Team.
   (RLS enabled with zero policies = anon deny-all)
 - Anthropic `claude-haiku-4-5-20251001` for classification (pinned by spec; server-only)
 - Fonts self-hosted via `next/font`: Space Grotesk (display), Inter (body), JetBrains Mono (mono)
-- Deploy target: Vercel (NOT set up yet)
+- Deployed on Vercel via the GitHub repo (auto-deploys each subtree push); functions pinned to pdx1 (vercel.json)
 
 ## Build status by screen
 
@@ -31,9 +31,11 @@ owner, and closing them out builds each person's delegation history on Team.
 | Team (cards, profile+history, add/edit) | ✅ Built, live-tested end-to-end |
 | Settings (name, businesses, toggles, channels, data) | ✅ Built, live-tested end-to-end |
 | Phase 2: Tier 2 pipeline + checklists + corrections + Review with me | ✅ Built (migration 002), live-tested end-to-end |
-| Delegation notifications (SMS/email/Slack send) | ⬜ Not built. Assigning an owner currently records the delegation + toasts "Assigned to X" — **no message is sent yet** |
-| PWA | Manifest + SVG icon done; PNG/apple-touch icons pending |
-| Vercel deploy | ⬜ Not started |
+| Delegation notifications (SMS via Twilio) | ✅ LIVE — carrier-confirmed delivery to Danny 2026-08-25, sends from **+15033038668** |
+| Swipe gestures on Board rows (right=Done, left=Delete w/ confirm tap, no checkbox) | ✅ Built, device-verified by Dave |
+| Perf: loading skeletons + router staleTimes(30s) + Vercel region pin pdx1 | ✅ Built (verified locally; region pin takes effect on next deploy) |
+| PWA icons (192/512 any, 512 maskable, 180 apple-touch PNGs) | ✅ Generated + wired into manifest/layout |
+| Vercel deploy | ✅ Live (Dave's Vercel account, auto-deploy from GitHub). Health-check on the live URL + deleting /api/env-check still pending — need the URL |
 
 ## What was verified live (2026-08-25, real DB + real Haiku calls, test data cleaned up after)
 
@@ -65,7 +67,9 @@ owner, and closing them out builds each person's delegation history on Team.
 - `SUPABASE_SERVICE_ROLE_KEY` (secret `sb_secret_…` — server only)
 - `ANTHROPIC_API_KEY`
 - `DATABASE_URL` (present but auth-broken, see above)
-- Twilio vars stubbed/commented for the notifications pass.
+- `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER=+15033038668` — ACTIVE, sends delivering
+- `RESEND_API_KEY` — **placeholder, email channel not live**; `EMAIL_FROM`, `SLACK_WEBHOOK_URL` stubs
+- Mirror the Twilio + Supabase + Anthropic vars into Vercel env for production sends (from-number = the 503 one)
 - ⚠ Past mixup: the secret key was originally pasted into the NEXT_PUBLIC anon slot — double-check slots when rotating.
 
 ## Design system notes
@@ -116,8 +120,39 @@ owner, and closing them out builds each person's delegation history on Team.
 - Voice: textarea + keyboard dictation is the primary path; in-app Web Speech is a bonus that self-disables
   in standalone/PWA mode (spec §Voice input).
 
-## Next actions (in order)
+## Notifications specifics (2026-08-25)
 
-1. **Notifications pass**: `/api/notify` — one message per explicit assignment via person's preferred channel
-   (Twilio SMS needs its own A2P campaign — separate from the True Home lead-gen campaign; email; optional Slack).
-4. Vercel deploy + PNG/apple-touch icons.
+- `lib/notify.ts` → exactly one message per explicit assignment (fired inside saveEntry when a new
+  delegation is created); respects the Settings notifications toggle; failed sends never block the
+  assignment (toast says so). `/api/notify` = deliberate manual resend by delegationId. Channels:
+  `lib/channels/{sms,email,slack}.ts` (Twilio REST / Resend / webhook), all env-secret driven.
+- **Sender number**: +15033038668 (local 10DLC, delivering). The toll-free +18773204828 CANNOT send:
+  Toll-Free Verification was **rejected July 2025** ("Invalid or Inaccessible Website URL") and never
+  re-filed — every send from it dies with Twilio error 30032. Re-file in Twilio Console with a valid
+  website URL if that number is ever wanted as sender; until approved, keep the 503 number.
+
+## Swipe & perf specifics (2026-08-25 evening)
+
+- Board rows have NO checkbox (per levr-swipe-prototype.html): swipe right past ~70px commits Done on
+  release (green reveal); swipe left snaps open a red Delete that fires ONLY on a second deliberate tap;
+  tap with a panel open just resets; plain tap opens the detail sheet. Touches starting <24px from the
+  left screen edge are ignored (Safari back-swipe). No haptics (unsupported in iOS PWA). Component:
+  `components/board/SwipeRow.tsx`; sheet trash + swipe delete share one handler.
+- Perf: `loading.tsx` skeletons on all four routes; `experimental.staleTimes.dynamic=30` (safe because
+  all mutations are Server Actions which invalidate the router cache); `vercel.json` pins functions to
+  **pdx1** (Portland — same metro as Supabase us-west-2). Diagnosis notes: tab lag was blocking
+  dynamic fetches + no loading boundary; Link/prefetch were never the problem.
+- **Dev-over-LAN gotcha**: Next 16 dev 403s hydration chunks for non-localhost hosts → blank greeting
+  + dead nav on the phone. Fixed via `allowedDevOrigins: ["192.168.0.229"]` in next.config.ts — update
+  the IP if the PC's DHCP lease changes.
+
+## Open items (for the record)
+
+1. **Email notifications**: Resend integration built but `RESEND_API_KEY` is a placeholder — not live.
+   Alternative discussed but undecided: Gmail-dedicated-account approach instead of Resend.
+2. **Toll-free +18773204828**: verification rejected July 2025, never re-filed; SMS sends from the 503
+   local number instead (see Notifications specifics).
+3. **Team roster**: only Danny exists — Stella and Chi still need to be added.
+4. **Deployed-app health check**: need the live Vercel URL from Dave; then delete `/api/env-check` (temporary
+   diagnostic, currently still deployed) and confirm env vars + region pin.
+5. Slack channel needs `SLACK_WEBHOOK_URL` whenever a workspace is actually connected.
