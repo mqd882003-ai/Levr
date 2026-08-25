@@ -158,5 +158,39 @@ Tier 2's system prompt gives Sonnet an explicit role, rather than a bare instruc
 - Checklist storage shape (new table vs. JSON column) — fine to leave to Claude Code's judgment, flagged above.
 - Should "Review with me" be scoped to the current business filter (if you're viewing "TC Dental Lab" only, does it review just that), or always the whole Board? Default assumption: respects the current scope filter, same as everything else on Board.
 
+## Addendum: Delegation Evolution (DRAFT, pending approval)
+Proposed 2026-08-25. Extends people/entries/delegations — no new backend architecture. Build as its own focused session(s), stop-for-review pattern.
+
+### A1. Assigning to someone not yet in Team
+- Assignment flow accepts a typed name; fuzzy-match against `people.name`; no match → inline "[Name] isn't in your Team yet — add them?" → confirm creates a minimal people row (name only, business inferred from the entry) and completes the assignment in the same action. No form detour.
+- Phone optional at creation; assignable/trackable without one — just no SMS/email until added. Profile shows a lightweight "no contact info" indicator; never blocks usage.
+
+### A2. Auto-evolving capability notes from outcome history
+- After each closeout, when a clear pattern exists in that person's recent history, propose/append a plain-language rolling capability summary (e.g. "Reliable on cold calls, 2 recent misses on client-facing tasks").
+- Additive/mergeable with Dave's manual notes — NEVER overwrites his edits. Diagnostic tone per A4.
+
+### A3. Per-category trust (build in this order)
+1. Category tag per delegation ("cold calls", "client-facing", "CRM data entry", …) — inferred by the classifier where possible, manual optional, low-friction.
+2. Minimum sample floor (3+ closed tasks in category) before any confidence read; below floor → "not enough history yet", never a false-early verdict.
+3. Recency-weighted (last ~5 per category or simple decay), not all-time average.
+4. Auto-generated summaries always traceable to the specific tasks behind them.
+5. Surfaces ONLY inline in the assignment sheet at the moment of handing someone a task in that category — no dashboard, no nags.
+6. Assigning despite a flag logs as its own data point — override adds data, never erases history.
+
+### A4. Non-punitive verdict framing
+- Closeout prompts + auto-notes favor diagnosis over judgment ("unclear brief", "needs more context", "timing conflict" over blunt trust downgrades). Copy/tone requirement across all verdict/notes UI strings. (~30% of initial delegations missing expectations is normal process, not exception.)
+
+### A5. Escalation guidance at assignment time
+- Optional single lightweight authority tag per assignment: "decide and go" vs "check with me first". Manual only in this pass — auto-suggestion is a future enhancement.
+
+### A6. Decay signal for stalled/unassigned items
+- Items unclassified or unassigned past an age threshold get a visible decay signal on Board (subtle highlight / "needs a decision" indicator). Rendering rule only — no new screen.
+
+### Addendum non-goals
+- No trust-scoring dashboard/analytics (inline only, per A3.5).
+- Category tagging never blocks capture — inferred where possible, manual optional.
+- Auto-notes never silently overwrite manual notes — merge/append only.
+- No escalation auto-suggestion in this pass.
+
 ## Definition of done for this pass
 A working mobile-web app where: a person can open it, see a greeting and a capture box with nothing else, talk or type a problem, have it classified and appear on Board under the right section, tap into Team to see/edit who they delegate to, and mark things done from Board. Nothing more.
