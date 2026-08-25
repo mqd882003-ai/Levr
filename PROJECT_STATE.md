@@ -30,6 +30,7 @@ owner, and closing them out builds each person's delegation history on Team.
 | Board (sections, pulse, chips, sheets, closeout) | ✅ Built, live-tested end-to-end |
 | Team (cards, profile+history, add/edit) | ✅ Built, live-tested end-to-end |
 | Settings (name, businesses, toggles, channels, data) | ✅ Built, live-tested end-to-end |
+| Phase 2: Tier 2 pipeline + checklists + corrections + Review with me | ✅ Built (migration 002), live-tested end-to-end |
 | Delegation notifications (SMS/email/Slack send) | ⬜ Not built. Assigning an owner currently records the delegation + toasts "Assigned to X" — **no message is sent yet** |
 | PWA | Manifest + SVG icon done; PNG/apple-touch icons pending |
 | Vercel deploy | ⬜ Not started |
@@ -85,6 +86,24 @@ owner, and closing them out builds each person's delegation history on Team.
 - GitHub: `https://github.com/mqd882003-ai/Levr` holds ONLY the levr/ subtree (split history, pushed
   2026-08-25 after a full-history secret scan) — NOT the whole D:\Claude workspace. To publish new commits:
   `git subtree push --prefix=levr origin main` (run from D:\Claude; `origin` there points at Levr.git).
+
+## Phase 2 specifics (2026-08-25)
+
+- Tier 2 = `claude-sonnet-5` + consultant persona (lib/tier2.ts), fired via `after()` from /api/classify —
+  off the capture path, lands ~5-15s later. Applies revisions in place; if the user already acted
+  (done/assigned/corrected), it flags (`entries.tier2_status='flagged'` + reason chip "Reclassify?")
+  instead of overwriting. Any user classification edit clears the flag.
+- Checklists: `checklist_items` table (chosen over JSON column); generated only for delegated items and
+  only when none exist; editable in the entry sheet; "n/m steps" on the row.
+- Corrections: `corrections` table logs user changes to business/project/is_leverage/owner (entry-scoped)
+  and capability_notes (person-scoped). Last 20 feed Tier 2 + Review prompts. Purely user-initiated edits —
+  applying a Review suggestion is deliberately NOT logged.
+- Review with me: dashed pill under the pulse card (only when entries are open); respects current scope
+  chip; POST /api/review; one optional round of ≤3 clarifying questions; per-suggestion apply/dismiss via
+  applyReviewSuggestion. Suggestion fields limited to is_leverage/business/project (owner changes stay in
+  the entry sheet where assignment side-effects live).
+- Gotcha learned: Sonnet 5 adaptive thinking spends from max_tokens — small caps truncate JSON mid-string
+  ("Unterminated string"). Budgets: tier2 8000, review 10000, with stop_reason==='max_tokens' guards.
 
 ## Key implementation decisions (why things are the way they are)
 
