@@ -13,6 +13,7 @@ export default function BoardSection({
   emptyIcon,
   flashId,
   onToggleDone,
+  onDelete,
   onOpen,
 }: {
   title: string;
@@ -24,6 +25,7 @@ export default function BoardSection({
   emptyIcon?: React.ReactNode;
   flashId: string | null;
   onToggleDone: (entry: BoardEntry) => void;
+  onDelete: (entry: BoardEntry) => Promise<boolean>;
   onOpen: (entry: BoardEntry) => void;
 }) {
   return (
@@ -41,6 +43,7 @@ export default function BoardSection({
             people={people}
             flash={flashId === e.id}
             onToggleDone={onToggleDone}
+            onDelete={onDelete}
             onOpen={onOpen}
           />
         ))

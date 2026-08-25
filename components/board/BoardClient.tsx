@@ -132,19 +132,24 @@ export default function BoardClient({
     } else showToast("Saved");
   };
 
-  const handleDelete = async () => {
-    if (!editing) return;
-    const id = editing.id;
-    setSaving(true);
-    const res = await deleteEntry(id);
-    setSaving(false);
+  // Shared by the swipe-left Delete button and the sheet's trash action.
+  const handleDeleteEntry = async (entry: BoardEntry): Promise<boolean> => {
+    const res = await deleteEntry(entry.id);
     if (!res.ok) {
       showToast(res.error ?? "Delete failed", "bad");
-      return;
+      return false;
     }
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-    setEditing(null);
+    setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+    setEditing((cur) => (cur?.id === entry.id ? null : cur));
     showToast("Deleted");
+    return true;
+  };
+
+  const handleDelete = async () => {
+    if (!editing) return;
+    setSaving(true);
+    await handleDeleteEntry(editing);
+    setSaving(false);
   };
 
   const handleReviewApply = async (s: ReviewSuggestion): Promise<boolean> => {
@@ -260,6 +265,7 @@ export default function BoardClient({
         }
         flashId={flashId}
         onToggleDone={handleToggleDone}
+        onDelete={handleDeleteEntry}
         onOpen={setEditing}
       />
       <BoardSection
@@ -277,6 +283,7 @@ export default function BoardClient({
         }
         flashId={flashId}
         onToggleDone={handleToggleDone}
+        onDelete={handleDeleteEntry}
         onOpen={setEditing}
       />
       {rev.length > 0 && (
@@ -287,6 +294,7 @@ export default function BoardClient({
           people={people}
           flashId={flashId}
           onToggleDone={handleToggleDone}
+          onDelete={handleDeleteEntry}
           onOpen={setEditing}
         />
       )}
@@ -294,6 +302,7 @@ export default function BoardClient({
         entries={done}
         people={people}
         onToggleDone={handleToggleDone}
+        onDelete={handleDeleteEntry}
         onOpen={setEditing}
       />
 

@@ -8,11 +8,13 @@ export default function DoneDrawer({
   entries,
   people,
   onToggleDone,
+  onDelete,
   onOpen,
 }: {
   entries: BoardEntry[];
   people: Person[];
   onToggleDone: (entry: BoardEntry) => void;
+  onDelete: (entry: BoardEntry) => Promise<boolean>;
   onOpen: (entry: BoardEntry) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -38,6 +40,7 @@ export default function DoneDrawer({
             people={people}
             flash={false}
             onToggleDone={onToggleDone}
+            onDelete={onDelete}
             onOpen={onOpen}
           />
         ))}
