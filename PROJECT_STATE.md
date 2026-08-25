@@ -28,8 +28,8 @@ owner, and closing them out builds each person's delegation history on Team.
 |---|---|
 | Home (greeting + capture + classify) | ✅ Built, live-tested end-to-end |
 | Board (sections, pulse, chips, sheets, closeout) | ✅ Built, live-tested end-to-end |
-| Team | ⬜ Placeholder shell only — **next up** |
-| Settings | ⬜ Placeholder shell only |
+| Team (cards, profile+history, add/edit) | ✅ Built, live-tested end-to-end |
+| Settings | ⬜ Placeholder shell only — **next up** |
 | Delegation notifications (SMS/email/Slack send) | ⬜ Not built. Assigning an owner currently records the delegation + toasts "Assigned to X" — **no message is sent yet** |
 | PWA | Manifest + SVG icon done; PNG/apple-touch icons pending |
 | Vercel deploy | ⬜ Not started |
@@ -96,9 +96,7 @@ owner, and closing them out builds each person's delegation history on Team.
 
 ## Next actions (in order)
 
-1. **Team screen**: person cards + live active counts, profile sheet (tel:/sms: quick actions, capability
-   notes, delegation history timeline from `delegations`), add/edit person form. Stop for Dave's review.
-2. **Settings screen**: name, businesses CRUD, notification toggle, channels area (SMS/Email on,
+1. **Settings screen**: name, businesses CRUD, notification toggle, channels area (SMS/Email on,
    Slack optional-off, WhatsApp/push "Soon"), storage indicator.
 3. **Notifications pass**: `/api/notify` — one message per explicit assignment via person's preferred channel
    (Twilio SMS needs its own A2P campaign — separate from the True Home lead-gen campaign; email; optional Slack).
