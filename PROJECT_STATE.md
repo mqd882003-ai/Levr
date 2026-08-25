@@ -80,8 +80,11 @@ owner, and closing them out builds each person's delegation history on Team.
 - Dev server: Browser-pane preview config **`levr-dev`** (D:\Claude\.claude\launch.json) → port **3005**.
 - ⚠ **Gotcha:** `npm run build` while the dev server runs kills the dev server (shared `.next`). Stop dev first.
 - `npm run build` must pass before calling any pass done.
-- Repo: levr lives inside the D:\Claude git repo. First commit: `6b352ea` (2026-08-25, Home + Board + schema;
+- Repo: levr lives inside the D:\Claude git repo (branch `main`). First commit: `6b352ea` (2026-08-25;
   `.env.local` excluded, staged diff secret-scanned before committing).
+- GitHub: `https://github.com/mqd882003-ai/Levr` holds ONLY the levr/ subtree (split history, pushed
+  2026-08-25 after a full-history secret scan) — NOT the whole D:\Claude workspace. To publish new commits:
+  `git subtree push --prefix=levr origin main` (run from D:\Claude; `origin` there points at Levr.git).
 
 ## Key implementation decisions (why things are the way they are)
 
