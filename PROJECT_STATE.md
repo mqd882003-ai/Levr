@@ -49,12 +49,14 @@ owner, and closing them out builds each person's delegation history on Team.
 - Schema migration `supabase/migrations/001_init.sql` **applied by Dave via dashboard SQL editor** 2026-08-25
   (verified over REST). Tables: businesses, people, projects, entries, delegations, app_settings (single row).
   Seeded businesses: True Home Acquisitions, TC Dental Lab.
-- `npm run db:migrate` (`scripts/migrate.mjs`) exists with a `_migrations` tracking table, **but the Postgres
-  connection is broken**: pooler `aws-0-us-west-2.pooler.supabase.com` recognizes the tenant but rejected
-  3 password resets. Suspected cause: password was reset in the wrong dashboard project (the True Home CRM
-  Supabase shares the account) or stale pooler creds (project restart may fix).
-  - When it works: 001 is NOT in `_migrations` yet — backfill the row or let the idempotent SQL re-run harmlessly.
-  - Direct host `db.<ref>.supabase.co` is IPv6-only → unreachable from Dave's machine. psql/supabase CLI not installed.
+- **Migrations work**: `npm run db:migrate` (`scripts/migrate.mjs`) runs via the **Supabase Management API**
+  (`SUPABASE_ACCESS_TOKEN` in .env.local, personal access token, **expires ~2027-08-25** — regenerate at
+  Account > Access Tokens). `_migrations` tracking table live; 001 backfilled 2026-08-25; verified "nothing to apply".
+- Postgres wire auth is BROKEN on this project and abandoned as a path: the session pooler
+  (`aws-0-us-west-2.pooler.supabase.com`) recognizes the tenant but rejected **4** correct password resets
+  AND a full project restart (REST fine throughout). Supabase-side fault; a support ticket is the only fix
+  if wire access is ever actually needed. `DATABASE_URL` remains in `.env.local` as a documented-broken fallback.
+  Direct host `db.<ref>.supabase.co` is IPv6-only → unreachable from Dave's machine. psql/supabase CLI not installed.
 
 ## Env (`.env.local`, never committed — real values live there now)
 
@@ -100,5 +102,4 @@ owner, and closing them out builds each person's delegation history on Team.
    Slack optional-off, WhatsApp/push "Soon"), storage indicator.
 3. **Notifications pass**: `/api/notify` — one message per explicit assignment via person's preferred channel
    (Twilio SMS needs its own A2P campaign — separate from the True Home lead-gen campaign; email; optional Slack).
-4. Fix `DATABASE_URL` (right project's password reset, or project restart) → backfill `_migrations`.
-5. Vercel deploy + PNG/apple-touch icons.
+4. Vercel deploy + PNG/apple-touch icons.
