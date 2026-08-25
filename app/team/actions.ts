@@ -30,10 +30,23 @@ export async function savePerson(
       capability_notes: input.notes.trim(),
     };
     const db = supabaseServer();
+    const before = id
+      ? (await db.from("people").select("*").eq("id", id).maybeSingle<Person>()).data
+      : null;
     const res = id
       ? await db.from("people").update(row).eq("id", id).select().single<Person>()
       : await db.from("people").insert(row).select().single<Person>();
     if (res.error || !res.data) throw new Error(res.error?.message ?? "No row returned");
+    // Phase 2 §4: capability-notes edits are corrections Tier 2 learns from.
+    if (before && before.capability_notes !== row.capability_notes) {
+      await db.from("corrections").insert({
+        person_id: id,
+        field: "capability_notes",
+        from_value: before.capability_notes || null,
+        to_value: row.capability_notes || null,
+        entry_text: `notes on ${name}`,
+      });
+    }
     return { ok: true, person: res.data };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Save failed" };

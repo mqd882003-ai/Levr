@@ -41,10 +41,19 @@ export default function EntryRow({
       </button>
       <button type="button" className="row-main" onClick={() => onOpen(entry)}>
         <div className="row-text">{entry.summary}</div>
-        {(entry.businessName || entry.projectName) && (
+        {(entry.businessName ||
+          entry.projectName ||
+          entry.checklist.length > 0 ||
+          entry.tier2Status === "flagged") && (
           <div className="row-meta">
             {entry.businessName && <span className="biz">{entry.businessName}</span>}
             {entry.projectName && <span>{entry.projectName}</span>}
+            {entry.checklist.length > 0 && (
+              <span className="steps">
+                {entry.checklist.filter((c) => c.done).length}/{entry.checklist.length} steps
+              </span>
+            )}
+            {entry.tier2Status === "flagged" && <span className="reclass">Reclassify?</span>}
           </div>
         )}
       </button>

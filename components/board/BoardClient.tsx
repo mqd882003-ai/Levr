@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  applyReviewSuggestion,
   closeoutDelegation,
   deleteEntry,
   saveEntry,
   toggleDone,
 } from "@/app/board/actions";
+import type { ReviewSuggestion } from "@/app/api/review/route";
+import ReviewSheet from "@/components/sheets/ReviewSheet";
 import BoardSection from "@/components/board/BoardSection";
 import DoneDrawer from "@/components/board/DoneDrawer";
 import PulseBar from "@/components/board/PulseBar";
@@ -37,6 +40,7 @@ export default function BoardClient({
   const [editing, setEditing] = useState<BoardEntry | null>(null);
   const [closeout, setCloseout] = useState<CloseoutTarget | null>(null);
   const [quickAdd, setQuickAdd] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -135,6 +139,32 @@ export default function BoardClient({
     showToast("Deleted");
   };
 
+  const handleReviewApply = async (s: ReviewSuggestion): Promise<boolean> => {
+    const res = await applyReviewSuggestion(s.entryId, s.field, s.to);
+    if (!res.ok || !res.patch) {
+      showToast(res.error ?? "Couldn't apply that", "bad");
+      return false;
+    }
+    patchEntry(s.entryId, {
+      ...(res.patch.isLeverage !== undefined
+        ? { isLeverage: res.patch.isLeverage, tier2Status: null, tier2Reason: null }
+        : {}),
+      ...(res.patch.businessId !== undefined
+        ? {
+            businessId: res.patch.businessId,
+            businessName: res.patch.businessName ?? null,
+            tier2Status: null,
+            tier2Reason: null,
+          }
+        : {}),
+      ...(res.patch.projectId !== undefined
+        ? { projectId: res.patch.projectId, projectName: res.patch.projectName ?? null }
+        : {}),
+    });
+    showToast("Applied", "good");
+    return true;
+  };
+
   const handleCloseoutLog = async (
     outcome: Outcome,
     verdict: Verdict | null,
@@ -193,6 +223,19 @@ export default function BoardClient({
       </div>
       <ScopeChips businesses={businesses} scope={scope} counts={counts} onScope={setScope} />
       <PulseBar entries={scoped} />
+      {openCount > 0 && (
+        <button
+          type="button"
+          className="review-btn pressable"
+          onClick={() => setReviewOpen(true)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+          </svg>
+          Review with me
+        </button>
+      )}
       <BoardSection
         title="Your 20%"
         swatch="signal"
@@ -258,11 +301,12 @@ export default function BoardClient({
       </button>
 
       <Sheet
-        open={Boolean(editing || closeout || quickAdd)}
+        open={Boolean(editing || closeout || quickAdd || reviewOpen)}
         onClose={() => {
           if (closeout) setCloseout(null);
           else if (editing) setEditing(null);
-          else setQuickAdd(false);
+          else if (quickAdd) setQuickAdd(false);
+          else setReviewOpen(false);
         }}
       >
         {closeout ? (
@@ -281,12 +325,22 @@ export default function BoardClient({
             onSave={handleSave}
             onDelete={handleDelete}
             onClose={() => setEditing(null)}
+            onChecklistChanged={(entryId, checklist) => patchEntry(entryId, { checklist })}
           />
         ) : quickAdd ? (
           <>
             <SheetHead title="Quick add" onClose={() => setQuickAdd(false)} />
             <CaptureBox />
           </>
+        ) : reviewOpen ? (
+          <ReviewSheet
+            businessId={scope === "all" ? null : scope}
+            scopeName={
+              scope === "all" ? null : (businesses.find((b) => b.id === scope)?.name ?? null)
+            }
+            onApply={handleReviewApply}
+            onClose={() => setReviewOpen(false)}
+          />
         ) : null}
       </Sheet>
       <Toast toast={toast} />

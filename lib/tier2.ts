@@ -1,0 +1,301 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { supabaseServer } from "@/lib/supabase/server";
+import type {
+  Business,
+  Correction,
+  Delegation,
+  Entry,
+  Person,
+  Project,
+} from "@/lib/types";
+
+// Phase 2 Tier 2: async consultant-grade second pass (requirements §Phase 2).
+// Runs after the capture response is sent; never on the critical path.
+const MODEL = "claude-sonnet-5";
+const CORRECTIONS_WINDOW = 20;
+
+export const PERSONA =
+  "You are an experienced business operations consultant and chief of staff for a busy, " +
+  "multi-business founder. Your job is to help them protect their time: flag what only they " +
+  "should personally handle (strategy, key decisions, judgment calls unique to their position), " +
+  "and what should be handed off to their team. You know their businesses, their team's track " +
+  "record, and how they've corrected your past calls — use all of it to make a sharper call " +
+  "than a first-pass guess would.";
+
+export interface Tier2Context {
+  businesses: Business[];
+  projects: Project[];
+  people: Person[];
+  delegations: Delegation[];
+  corrections: Correction[];
+}
+
+export async function loadTier2Context(): Promise<Tier2Context> {
+  const db = supabaseServer();
+  const [businesses, projects, people, delegations, corrections] = await Promise.all([
+    db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
+    db.from("projects").select("*").then(unwrap<Project>),
+    db.from("people").select("*").then(unwrap<Person>),
+    db
+      .from("delegations")
+      .select("*")
+      .order("assigned_at", { ascending: false })
+      .limit(100)
+      .then(unwrap<Delegation>),
+    db
+      .from("corrections")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(CORRECTIONS_WINDOW)
+      .then(unwrap<Correction>),
+  ]);
+  return { businesses, projects, people, delegations, corrections };
+}
+
+// All dynamic text embedded via JSON.stringify (spec §Known failure mode).
+export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
+  const businessName = new Map(ctx.businesses.map((b) => [b.id, b.name]));
+  const team = ctx.people.map((p) => ({
+    id: p.id,
+    name: p.name,
+    role: p.role ?? "",
+    business: p.business_id ? (businessName.get(p.business_id) ?? null) : null,
+    capability_notes: p.capability_notes || "",
+    recent_delegations: ctx.delegations
+      .filter((d) => d.person_id === p.id)
+      .slice(0, 5)
+      .map((d) => ({
+        task: d.expected_outcome,
+        outcome: d.actual_outcome,
+        verdict: d.verdict,
+        note: d.outcome_note ?? "",
+      })),
+  }));
+  const pastCorrections = ctx.corrections.map((c) => ({
+    field: c.field,
+    entry: c.entry_text,
+    ai_guessed: c.from_value,
+    founder_changed_to: c.to_value,
+  }));
+  const firstPass = {
+    business: entry.business_id ? (businessName.get(entry.business_id) ?? null) : null,
+    project: ctx.projects.find((p) => p.id === entry.project_id)?.name ?? null,
+    is_leverage: entry.is_leverage,
+    summary: entry.summary,
+  };
+
+  return (
+    "A fast first-pass model already classified this captured thought. Review its call and " +
+    "make the sharper final call.\n\n" +
+    "Businesses: " + JSON.stringify(ctx.businesses.map((b) => b.name)) +
+    "\nExisting projects: " + JSON.stringify(ctx.projects.map((p) => p.name)) +
+    "\nTeam (capability notes + recent delegation history): " + JSON.stringify(team) +
+    "\nHow the founder has corrected past AI calls (most recent first): " +
+    JSON.stringify(pastCorrections) +
+    "\n\nCaptured entry: " + JSON.stringify(entry.text) +
+    "\nFirst-pass classification: " + JSON.stringify(firstPass) +
+    "\n\nDecide:\n" +
+    '- "business": exactly one name from the Businesses list, or null.\n' +
+    '- "project": existing project name (fuzzy match), a short NEW 2-4 word name, or null.\n' +
+    '- "is_leverage": true = founder-only; false = delegate-able; null only if truly undecidable.\n' +
+    '- "summary": one board-readable line, max 12 words (keep the first-pass summary unless it misses the point).\n' +
+    '- "suggested_owner_id": best team member id when is_leverage is false (weigh notes and verdicts; rule out pull-backs on similar work), else null.\n' +
+    '- "checklist": when is_leverage is false, 2-5 short concrete sub-steps in order (imperative, max 8 words each); else [].\n' +
+    '- "reason": one sentence, only when you disagree with the first-pass is_leverage or business call; else null.\n\n' +
+    'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,"summary":"...","suggested_owner_id":...,"checklist":[...],"reason":...}'
+  );
+}
+
+interface Tier2Result {
+  business: string | null;
+  project: string | null;
+  is_leverage: boolean | null;
+  summary: string;
+  suggested_owner_id: string | null;
+  checklist: string[];
+  reason: string | null;
+}
+
+function parseTier2(raw: string, ctx: Tier2Context, fallbackSummary: string): Tier2Result {
+  const parsed: unknown = JSON.parse(raw.replace(/```json|```/g, "").trim());
+  if (typeof parsed !== "object" || parsed === null) throw new Error("non-object JSON");
+  const p = parsed as Record<string, unknown>;
+  const business =
+    typeof p.business === "string" && ctx.businesses.some((b) => b.name === p.business)
+      ? (p.business as string)
+      : null;
+  const is_leverage = typeof p.is_leverage === "boolean" ? p.is_leverage : null;
+  return {
+    business,
+    project: typeof p.project === "string" && p.project.trim() ? p.project.trim() : null,
+    is_leverage,
+    summary:
+      typeof p.summary === "string" && p.summary.trim() ? p.summary.trim() : fallbackSummary,
+    suggested_owner_id:
+      is_leverage === false &&
+      typeof p.suggested_owner_id === "string" &&
+      ctx.people.some((person) => person.id === p.suggested_owner_id)
+        ? (p.suggested_owner_id as string)
+        : null,
+    checklist: Array.isArray(p.checklist)
+      ? p.checklist
+          .filter((s): s is string => typeof s === "string" && Boolean(s.trim()))
+          .slice(0, 5)
+      : [],
+    reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
+  };
+}
+
+// The full async pass. Never throws — failures mark tier2_status='failed' and
+// the entry simply stands as Tier 1 left it.
+export async function runTier2(entryId: string): Promise<void> {
+  const db = supabaseServer();
+  try {
+    const ctx = await loadTier2Context();
+    const before = await db
+      .from("entries")
+      .select("*")
+      .eq("id", entryId)
+      .maybeSingle<Entry>();
+    if (!before.data) return; // deleted while we waited — nothing to do
+    const entry = before.data;
+
+    const client = new Anthropic();
+    // Sonnet 5 thinks adaptively by default and thinking spends max_tokens —
+    // budget generously or the JSON output gets truncated mid-string.
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 8000,
+      system: PERSONA,
+      messages: [{ role: "user", content: buildTier2Prompt(entry, ctx) }],
+    });
+    if (response.stop_reason === "max_tokens") {
+      throw new Error("tier2 output truncated at max_tokens");
+    }
+    const raw = response.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    const result = parseTier2(raw, ctx, entry.summary ?? entry.text);
+
+    const businessId = ctx.businesses.find((b) => b.name === result.business)?.id ?? null;
+    const disagrees =
+      result.is_leverage !== entry.is_leverage || businessId !== entry.business_id;
+
+    // Guard: has the user acted since capture? (done, assigned, or corrected)
+    const [fresh, delegation, corrected] = await Promise.all([
+      db.from("entries").select("*").eq("id", entryId).maybeSingle<Entry>(),
+      db
+        .from("delegations")
+        .select("id")
+        .eq("entry_id", entryId)
+        .limit(1)
+        .maybeSingle<{ id: string }>(),
+      db
+        .from("corrections")
+        .select("id")
+        .eq("entry_id", entryId)
+        .limit(1)
+        .maybeSingle<{ id: string }>(),
+    ]);
+    if (!fresh.data) return;
+    const userActed =
+      fresh.data.status !== "open" ||
+      Boolean(delegation.data) ||
+      Boolean(corrected.data) ||
+      // classification changed under us since we read it
+      fresh.data.is_leverage !== entry.is_leverage ||
+      fresh.data.business_id !== entry.business_id;
+
+    if (userActed) {
+      // Surface the disagreement, change nothing (spec: no silent flip).
+      if (disagrees) {
+        await db
+          .from("entries")
+          .update({
+            tier2_status: "flagged",
+            tier2_reason: result.reason ?? "Second look disagrees with the first-pass call.",
+            tier2_at: new Date().toISOString(),
+          })
+          .eq("id", entryId);
+      } else {
+        await db
+          .from("entries")
+          .update({ tier2_status: "confirmed", tier2_at: new Date().toISOString() })
+          .eq("id", entryId);
+      }
+      return;
+    }
+
+    // Resolve/create project for the revised call.
+    let projectId: string | null = null;
+    if (result.project) {
+      const existing = ctx.projects.find(
+        (p) => p.name.toLowerCase() === result.project!.toLowerCase(),
+      );
+      if (existing) projectId = existing.id;
+      else {
+        const created = await db
+          .from("projects")
+          .insert({
+            name: result.project,
+            business_id: businessId,
+            created_from_entry_id: entryId,
+          })
+          .select()
+          .single<Project>();
+        projectId = created.data?.id ?? null;
+      }
+    }
+
+    const changed =
+      disagrees ||
+      projectId !== entry.project_id ||
+      result.suggested_owner_id !== entry.suggested_person_id ||
+      result.summary !== entry.summary;
+    await db
+      .from("entries")
+      .update({
+        business_id: businessId,
+        project_id: projectId,
+        is_leverage: result.is_leverage,
+        summary: result.summary,
+        suggested_person_id: result.suggested_owner_id,
+        tier2_status: changed ? "revised" : "confirmed",
+        tier2_reason: result.reason,
+        tier2_at: new Date().toISOString(),
+      })
+      .eq("id", entryId);
+
+    // Checklist only for delegated items, and only if none exists yet.
+    if (result.is_leverage === false && result.checklist.length) {
+      const existing = await db
+        .from("checklist_items")
+        .select("id")
+        .eq("entry_id", entryId)
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      if (!existing.data) {
+        await db.from("checklist_items").insert(
+          result.checklist.map((text, i) => ({
+            entry_id: entryId,
+            text,
+            sort_order: i,
+          })),
+        );
+      }
+    }
+  } catch (err) {
+    console.error("tier2 failed for", entryId, err);
+    await db
+      .from("entries")
+      .update({ tier2_status: "failed", tier2_at: new Date().toISOString() })
+      .eq("id", entryId)
+      .then(() => {}, () => {});
+  }
+}
+
+function unwrap<T>(result: { data: T[] | null; error: { message: string } | null }): T[] {
+  if (result.error) throw new Error(result.error.message);
+  return result.data ?? [];
+}

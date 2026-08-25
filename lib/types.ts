@@ -32,6 +32,8 @@ export interface Project {
   created_at: string;
 }
 
+export type Tier2Status = "confirmed" | "revised" | "flagged" | "failed";
+
 export interface Entry {
   id: string;
   text: string;
@@ -44,6 +46,36 @@ export interface Entry {
   source: EntrySource;
   captured_at: string;
   done_at: string | null;
+  tier2_status: Tier2Status | null;
+  tier2_reason: string | null;
+  tier2_at: string | null;
+}
+
+export interface ChecklistItem {
+  id: string;
+  entry_id: string;
+  text: string;
+  done: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export type CorrectionField =
+  | "business"
+  | "project"
+  | "is_leverage"
+  | "owner"
+  | "capability_notes";
+
+export interface Correction {
+  id: string;
+  entry_id: string | null;
+  person_id: string | null;
+  field: CorrectionField;
+  from_value: string | null;
+  to_value: string | null;
+  entry_text: string | null;
+  created_at: string;
 }
 
 export interface Delegation {
@@ -81,6 +113,9 @@ export interface BoardEntry {
   capturedAt: string;
   ownerId: string | null;
   openDelegationId: string | null;
+  tier2Status: Tier2Status | null;
+  tier2Reason: string | null;
+  checklist: Array<Pick<ChecklistItem, "id" | "text" | "done">>;
 }
 
 // What the classifier returns (see lib/classify.ts).

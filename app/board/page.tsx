@@ -3,6 +3,7 @@ import { supabaseConfigured, supabaseServer } from "@/lib/supabase/server";
 import type {
   BoardEntry,
   Business,
+  ChecklistItem,
   Delegation,
   Entry,
   Person,
@@ -35,13 +36,14 @@ export default async function BoardPage({
   }
 
   const db = supabaseServer();
-  const [entriesRes, businessesRes, peopleRes, projectsRes, delegationsRes] =
+  const [entriesRes, businessesRes, peopleRes, projectsRes, delegationsRes, checklistRes] =
     await Promise.all([
       db.from("entries").select("*").order("captured_at", { ascending: false }),
       db.from("businesses").select("*").order("created_at"),
       db.from("people").select("*").order("created_at"),
       db.from("projects").select("*"),
       db.from("delegations").select("*").order("assigned_at", { ascending: false }),
+      db.from("checklist_items").select("*").order("sort_order"),
     ]);
 
   const entries = (entriesRes.data ?? []) as Entry[];
@@ -49,6 +51,7 @@ export default async function BoardPage({
   const people = (peopleRes.data ?? []) as Person[];
   const projects = (projectsRes.data ?? []) as Project[];
   const delegations = (delegationsRes.data ?? []) as Delegation[];
+  const checklistItems = (checklistRes.data ?? []) as ChecklistItem[];
 
   const businessName = new Map(businesses.map((b) => [b.id, b.name]));
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
@@ -72,6 +75,11 @@ export default async function BoardPage({
       capturedAt: e.captured_at,
       ownerId: latest?.person_id ?? null,
       openDelegationId: open?.id ?? null,
+      tier2Status: e.tier2_status,
+      tier2Reason: e.tier2_reason,
+      checklist: checklistItems
+        .filter((c) => c.entry_id === e.id)
+        .map((c) => ({ id: c.id, text: c.text, done: c.done })),
     };
   });
 

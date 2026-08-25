@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { classifyEntry, type ClassifyContext } from "@/lib/classify";
+import { runTier2 } from "@/lib/tier2";
 import { supabaseServer, supabaseConfigured } from "@/lib/supabase/server";
 import type { Business, Delegation, Entry, Person, Project } from "@/lib/types";
 
@@ -95,6 +96,9 @@ export async function POST(request: Request) {
       .select()
       .single<Entry>();
 
+    // Phase 2 Tier 2: consultant-grade second pass, off the critical path.
+    after(() => runTier2(entry.id));
+
     return NextResponse.json({
       entry: updated.data ?? entry,
       classified: true,
@@ -102,6 +106,7 @@ export async function POST(request: Request) {
   } catch (err) {
     // Entry is already saved — surface it unclassified rather than failing.
     console.error("classification failed:", err);
+    after(() => runTier2(entry.id));
     return NextResponse.json({ entry, classified: false });
   }
 }
