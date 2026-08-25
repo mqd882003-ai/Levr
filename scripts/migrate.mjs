@@ -106,7 +106,8 @@ const q = (s) => {
 
 try {
   await t.query(
-    "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
+    "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now()); " +
+      "alter table _migrations enable row level security;",
   );
   const rows = await t.query("select name from _migrations");
   const done = new Set(rows.map((r) => r.name));
