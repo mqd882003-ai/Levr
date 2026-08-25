@@ -1,5 +1,6 @@
 "use server";
 
+import { notifyAssignment } from "@/lib/notify";
 import { supabaseServer } from "@/lib/supabase/server";
 import type {
   ChecklistItem,
@@ -47,6 +48,13 @@ export interface SaveEntryResult {
   ownerId?: string | null;
   openDelegationId?: string | null;
   assignedName?: string | null; // set only when a NEW assignment was created
+  // Outcome of the single assignment message (only on new assignments).
+  notification?: {
+    sent: boolean;
+    channel: string | null;
+    skipped?: "notifications_off";
+    error?: string;
+  };
 }
 
 // Persists an entry-sheet edit. Owner changes maintain the delegations table:
@@ -132,6 +140,7 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
       openDelegationId = null;
       ownerId = null;
     }
+    let notification: SaveEntryResult["notification"];
     if (desiredOwner && ownerId !== desiredOwner) {
       const inserted = await db
         .from("delegations")
@@ -151,6 +160,9 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
         .eq("id", desiredOwner)
         .single<Pick<Person, "name">>();
       assignedName = person.data?.name ?? null;
+      // The one automatic trigger in the whole app: this explicit assignment.
+      // A failed send never blocks the assignment (spec §Delegation notifications).
+      notification = await notifyAssignment(inserted.data.id);
     }
 
     // Record what the user changed vs. the pre-edit state (Phase 2 §4).
@@ -202,6 +214,7 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
       ownerId,
       openDelegationId,
       assignedName,
+      notification,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Save failed" };

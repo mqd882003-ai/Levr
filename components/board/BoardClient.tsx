@@ -120,8 +120,16 @@ export default function BoardClient({
       openDelegationId: res.openDelegationId ?? null,
     });
     setEditing(null);
-    if (res.assignedName) showToast(`Assigned to ${res.assignedName}`, "good");
-    else showToast("Saved");
+    if (res.assignedName) {
+      const n = res.notification;
+      if (n?.sent) {
+        showToast(`Sent to ${res.assignedName} via ${(n.channel ?? "").toUpperCase()}`, "good");
+      } else if (n?.skipped === "notifications_off") {
+        showToast(`Assigned to ${res.assignedName}`, "good");
+      } else {
+        showToast(`Assigned to ${res.assignedName} — message didn't send`, "bad");
+      }
+    } else showToast("Saved");
   };
 
   const handleDelete = async () => {
