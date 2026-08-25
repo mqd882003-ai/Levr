@@ -1,7 +1,8 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-25 (night)** — after prod verification + quick-add/owner-picker UX round.
+> Last updated: **2026-08-25 (night)** — quick-add/owner-picker/'Hand off to' fixes pushed (`69d6ff6`) and live on
+> levr-six.vercel.app; Delegation Evolution addendum drafted (pending approval).
 
 ## What this project is
 
@@ -86,7 +87,8 @@ owner, and closing them out builds each person's delegation history on Team.
 - ⚠ **Gotcha:** `npm run build` while the dev server runs kills the dev server (shared `.next`). Stop dev first.
 - `npm run build` must pass before calling any pass done.
 - Repo: levr lives inside the D:\Claude git repo (branch `main`). First commit: `6b352ea` (2026-08-25;
-  `.env.local` excluded, staged diff secret-scanned before committing).
+  `.env.local` excluded, staged diff secret-scanned before committing). Latest code commit: `69d6ff6`
+  (quick-add/owner-picker/label round); docs + state commits follow each working session.
 - GitHub: `https://github.com/mqd882003-ai/Levr` holds ONLY the levr/ subtree (split history, pushed
   2026-08-25 after a full-history secret scan) — NOT the whole D:\Claude workspace. To publish new commits:
   `git subtree push --prefix=levr origin main` (run from D:\Claude; `origin` there points at Levr.git).
@@ -137,14 +139,24 @@ owner, and closing them out builds each person's delegation history on Team.
   no longer navigates after classify (the refetch + skeleton made the board "disappear for a bit").
   /api/classify now returns `business_name`/`project_name` so the client can render the new row
   without a refetch. Home still navigates with ?new= highlight.
+  **✅ Fixed, verified, pushed `69d6ff6`.** Root cause confirmed: post-classify navigation plus the new
+  loading skeleton was swallowing the whole screen mid-update. Classified row now drops into the top
+  of the list the moment the AI responds (flash + "Filed under…" toast); URL never changes, sheet
+  auto-closes. The 1–2s "Sorting it out…" while Haiku thinks is inherent and expected — the board itself
+  no longer disappears during it.
 - **Owner picker offers everyone**, same-business people first (was same-business only — a dead end
   for single-person businesses like Yana/TC Dental). Label renamed **"Hand off to"** (Dave's pick over
   Assign to / Who's on it / Delegate to).
+  **✅ Fixed, verified, pushed `69d6ff6`.** Root cause wasn't a tap bug — the picker only ever showed
+  same-business people, and Yana was TC Dental's only person, so there was no one else to pick.
+  Verified same entry now offers both Yana and Danny. (Tapping a selected person's pill deselects them —
+  always true, just invisible when there was only one pill to tap.)
 - Team roster now: Danny (THA) + **Yana (TC Dental Lab)** — Dave added Yana himself from the phone.
-- **Testing gotcha for future sessions**: the hidden Browser-pane suspends requestAnimationFrame, which
-  React 19's Suspense reveal batching waits on — pages look "unhydrated" (no fibers, dead clicks) in
-  pane tests while being perfectly healthy in real browsers. Workaround when testing there:
-  `window.$RV(window.$RB)` to force the reveal, or test on a visible browser/device.
+- **Testing gotcha (cost real time this session, don't re-chase)**: the hidden Browser-pane test
+  environment suspends `requestAnimationFrame`, which React 19's Suspense reveal batching waits on —
+  pages look "unhydrated" (no fibers, dead clicks, content stuck in a hidden `S:0` div) in pane tests
+  while perfectly healthy in real browsers/phone. Workaround: `window.$RV(window.$RB)` to force the
+  reveal, or test on a visible browser/device.
 
 ## Swipe & perf specifics (2026-08-25 evening)
 
@@ -169,3 +181,9 @@ owner, and closing them out builds each person's delegation history on Team.
    local number instead (see Notifications specifics).
 3. **Team roster**: Danny + Yana exist — Stella and Chi still need to be added.
 4. Slack channel needs `SLACK_WEBHOOK_URL` whenever a workspace is actually connected.
+5. **Delegation Evolution addendum** (`docs/levr-requirements.md` §Addendum, commit `c28b05a`) — DRAFT,
+   not approved for build. Five design decisions owed by Dave: ① auto-notes as a separate `system_notes`
+   block vs merged into his text, ② category vocabulary (classifier-minted evolving set vs fixed list),
+   ③ decay threshold (proposed 3 days), ④ optional closeout diagnosis chips y/n, ⑤ escalation tag
+   included in the notification SMS y/n. Proposed build order: 003 migration + A1 + A6, then A3, then A2,
+   A4 tone woven throughout, A5 alongside A1.
