@@ -6,6 +6,7 @@ import {
   applyReviewSuggestion,
   closeoutDelegation,
   deleteEntry,
+  parkEntry,
   saveEntry,
   toggleDone,
 } from "@/app/board/actions";
@@ -21,21 +22,34 @@ import CloseoutSheet, { type CloseoutTarget } from "@/components/sheets/Closeout
 import EntrySheet, { type EntrySheetSave } from "@/components/sheets/EntrySheet";
 import Toast, { type ToastState } from "@/components/ui/Toast";
 import type { CapturedExtras } from "@/components/capture/CaptureBox";
-import type { BoardEntry, Business, Entry, Outcome, Person, Verdict } from "@/lib/types";
+import type {
+  BoardEntry,
+  Business,
+  Diagnosis,
+  Entry,
+  Outcome,
+  Person,
+  TrustEvidence,
+  Verdict,
+} from "@/lib/types";
 
 export default function BoardClient({
   initialEntries,
   businesses,
   people,
+  evidence,
   newId,
 }: {
   initialEntries: BoardEntry[];
   businesses: Business[];
   people: Person[];
+  evidence: TrustEvidence[];
   newId: string | null;
 }) {
   const router = useRouter();
   const [entries, setEntries] = useState(initialEntries);
+  // A1: people can grow mid-session via inline create-and-assign.
+  const [peopleList, setPeopleList] = useState(people);
   const [scope, setScope] = useState("all");
   const [flashId, setFlashId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BoardEntry | null>(null);
@@ -57,6 +71,9 @@ export default function BoardClient({
   useEffect(() => {
     setEntries(initialEntries);
   }, [initialEntries]);
+  useEffect(() => {
+    setPeopleList(people);
+  }, [people]);
 
   // Fresh capture: flash + scroll to the new row, announce the filing, clean
   // the URL (requirements §Home: "visibly highlighted at the top ... for a
@@ -124,6 +141,8 @@ export default function BoardClient({
       tier2Status: entry.tier2_status,
       tier2Reason: entry.tier2_reason,
       checklist: [],
+      category: entry.category,
+      parkedUntil: entry.parked_until,
     };
     setEntries((prev) => [row, ...prev]);
     setQuickAdd(false);
@@ -168,10 +187,15 @@ export default function BoardClient({
       openDelegationId: res.openDelegationId ?? null,
     });
     setEditing(null);
+    if (res.createdPerson) {
+      setPeopleList((prev) => [...prev, res.createdPerson!]);
+    }
     if (res.assignedName) {
       const n = res.notification;
       if (n?.sent) {
         showToast(`Sent to ${res.assignedName} via ${(n.channel ?? "").toUpperCase()}`, "good");
+      } else if (n?.skipped === "no_contact") {
+        showToast(`Assigned to ${res.assignedName} (no contact info yet)`, "good");
       } else if (n?.skipped === "notifications_off") {
         showToast(`Assigned to ${res.assignedName}`, "good");
       } else {
@@ -226,14 +250,34 @@ export default function BoardClient({
     return true;
   };
 
+  const handlePark = async () => {
+    if (!editing) return;
+    const id = editing.id;
+    const res = await parkEntry(id);
+    if (!res.ok || !res.parkedUntil) {
+      showToast(res.error ?? "Couldn't park that", "bad");
+      return;
+    }
+    patchEntry(id, { parkedUntil: res.parkedUntil });
+    setEditing(null);
+    showToast("Parked — I'll bring it back in a couple weeks");
+  };
+
   const handleCloseoutLog = async (
     outcome: Outcome,
     verdict: Verdict | null,
     note: string,
+    diagnosis: Diagnosis | null,
   ) => {
     if (!closeout) return;
     setSaving(true);
-    const res = await closeoutDelegation(closeout.delegationId, outcome, verdict, note);
+    const res = await closeoutDelegation(
+      closeout.delegationId,
+      outcome,
+      verdict,
+      note,
+      diagnosis,
+    );
     setSaving(false);
     if (!res.ok) {
       showToast(res.error ?? "Couldn't log that", "bad");
@@ -301,7 +345,7 @@ export default function BoardClient({
         title="Your 20%"
         swatch="signal"
         entries={lev}
-        people={people}
+        people={peopleList}
         emptyTitle="Nothing only you can do right now."
         emptySub="Capture something and I'll flag the founder-level stuff."
         emptyIcon={
@@ -320,7 +364,7 @@ export default function BoardClient({
         title="Delegated"
         swatch="noise"
         entries={del}
-        people={people}
+        people={peopleList}
         emptyTitle="Nothing handed off yet."
         emptySub="Operational stuff lands here with an owner slot."
         emptyIcon={
@@ -339,7 +383,7 @@ export default function BoardClient({
           title="Needs a look"
           swatch="review"
           entries={rev}
-          people={people}
+          people={peopleList}
           flashId={flashId}
           onToggleDone={handleToggleDone}
           onDelete={handleDeleteEntry}
@@ -348,7 +392,7 @@ export default function BoardClient({
       )}
       <DoneDrawer
         entries={done}
-        people={people}
+        people={peopleList}
         onToggleDone={handleToggleDone}
         onDelete={handleDeleteEntry}
         onOpen={setEditing}
@@ -385,11 +429,13 @@ export default function BoardClient({
           <EntrySheet
             entry={editing}
             businesses={businesses}
-            people={people}
+            people={peopleList}
+            evidence={evidence}
             saving={saving}
             onSave={handleSave}
             onDelete={handleDelete}
             onClose={() => setEditing(null)}
+            onPark={() => void handlePark()}
             onChecklistChanged={(entryId, checklist) => patchEntry(entryId, { checklist })}
           />
         ) : quickAdd ? (

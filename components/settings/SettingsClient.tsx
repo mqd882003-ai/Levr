@@ -71,26 +71,25 @@ export default function SettingsClient({
     else showToast("Saved");
   };
 
-  const toggle = async (key: "notifications" | "slack") => {
-    const next =
-      key === "notifications" ? !settings.notifications_enabled : !settings.slack_enabled;
-    setSettings((s) =>
+  const toggle = async (key: "notifications" | "slack" | "autoNotes") => {
+    const field =
       key === "notifications"
-        ? { ...s, notifications_enabled: next }
-        : { ...s, slack_enabled: next },
-    );
+        ? "notifications_enabled"
+        : key === "slack"
+          ? "slack_enabled"
+          : "auto_notes";
+    const next = !settings[field];
+    setSettings((s) => ({ ...s, [field]: next }));
     const res = await updateSettings({ [key]: next });
     if (!res.ok) {
-      setSettings((s) =>
-        key === "notifications"
-          ? { ...s, notifications_enabled: !next }
-          : { ...s, slack_enabled: !next },
-      );
+      setSettings((s) => ({ ...s, [field]: !next }));
       showToast(res.error ?? "Save failed", "bad");
       return;
     }
     if (key === "slack")
       showToast(next ? "Slack enabled — webhook is configured server-side" : "Slack off");
+    if (key === "autoNotes")
+      showToast(next ? "I'll keep capability notes current from outcomes" : "Notes back to manual only");
   };
 
   const handleAddBusiness = async () => {
@@ -191,6 +190,17 @@ export default function SettingsClient({
                 on={settings.notifications_enabled}
                 label="Notifications"
                 onToggle={() => void toggle("notifications")}
+              />
+            </div>
+            <div className="line">
+              <span className="grow">
+                Auto-update capability notes
+                <span className="sub">Levr adds a rolling read from outcomes. Your own notes stay untouched.</span>
+              </span>
+              <Switch
+                on={settings.auto_notes}
+                label="Auto-update capability notes"
+                onToggle={() => void toggle("autoNotes")}
               />
             </div>
           </div>

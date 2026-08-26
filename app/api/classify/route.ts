@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { classifyEntry, type ClassifyContext } from "@/lib/classify";
 import { runTier2 } from "@/lib/tier2";
 import { supabaseServer, supabaseConfigured } from "@/lib/supabase/server";
-import type { Business, Delegation, Entry, Person, Project } from "@/lib/types";
+import type { Business, Category, Delegation, Entry, Person, Project } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   const entry = inserted.data;
 
   try {
-    const [businesses, projects, people, delegations] = await Promise.all([
+    const [businesses, projects, people, delegations, categories] = await Promise.all([
       db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
       db.from("projects").select("*").then(unwrap<Project>),
       db.from("people").select("*").then(unwrap<Person>),
@@ -54,8 +54,9 @@ export async function POST(request: Request) {
         .order("assigned_at", { ascending: false })
         .limit(100)
         .then(unwrap<Delegation>),
+      db.from("categories").select("*").eq("status", "active").then(unwrap<Category>),
     ]);
-    const ctx: ClassifyContext = { businesses, projects, people, delegations };
+    const ctx: ClassifyContext = { businesses, projects, people, delegations, categories };
 
     const result = await classifyEntry(entry.text, ctx);
 
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
         project_id: projectId,
         is_leverage: result.is_leverage,
         suggested_person_id: result.suggested_owner_id,
+        category: result.category,
       })
       .eq("id", entry.id)
       .select()

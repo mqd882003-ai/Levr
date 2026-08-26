@@ -22,6 +22,9 @@ export default function PersonCard({
         <span className="p-role">
           {[person.role, businessName].filter(Boolean).join(" · ") || "—"}
         </span>
+        {!person.phone_number?.trim() && !person.email?.trim() && (
+          <span className="p-role no-contact">No contact info yet</span>
+        )}
       </span>
       <span className={`p-stat${activeCount ? "" : " zero"}`}>
         <b>{activeCount}</b>

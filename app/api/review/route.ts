@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseConfigured } from "@/lib/supabase/server";
 import { PERSONA, loadTier2Context } from "@/lib/tier2";
-import type { Entry } from "@/lib/types";
+import type { Category, Entry } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -25,6 +25,12 @@ export interface ReviewSuggestion {
   reason: string;
 }
 
+// A3.1: classifier-proposed categories, batched here instead of interrupting.
+export interface CategoryProposal {
+  id: string;
+  name: string;
+}
+
 export async function POST(request: Request) {
   if (!supabaseConfigured()) {
     return NextResponse.json({ error: "Backend not configured" }, { status: 503 });
@@ -45,12 +51,20 @@ export async function POST(request: Request) {
       ? (ctx.businesses.find((b) => b.id === businessId)?.name ?? null)
       : null;
 
+    const proposalsRes = await db
+      .from("categories")
+      .select("id, name")
+      .eq("status", "proposed")
+      .order("created_at");
+    const categoryProposals: CategoryProposal[] = (proposalsRes.data ??
+      []) as Pick<Category, "id" | "name">[];
+
     let query = db.from("entries").select("*").eq("status", "open");
     if (businessId) query = query.eq("business_id", businessId);
     const entriesRes = await query.order("captured_at", { ascending: false }).limit(40);
     const entries = (entriesRes.data ?? []) as Entry[];
     if (!entries.length) {
-      return NextResponse.json({ suggestions: [] });
+      return NextResponse.json({ suggestions: [], categoryProposals });
     }
 
     const businessName = new Map(ctx.businesses.map((b) => [b.id, b.name]));
@@ -131,7 +145,7 @@ export async function POST(request: Request) {
       const questions = parsed.questions
         .filter((q): q is string => typeof q === "string" && Boolean(q.trim()))
         .slice(0, 3);
-      if (questions.length) return NextResponse.json({ questions });
+      if (questions.length) return NextResponse.json({ questions, categoryProposals });
     }
 
     const entryById = new Map(entries.map((e) => [e.id, e]));
@@ -189,7 +203,7 @@ export async function POST(request: Request) {
       })
       .slice(0, 6);
 
-    return NextResponse.json({ suggestions });
+    return NextResponse.json({ suggestions, categoryProposals });
   } catch (err) {
     console.error("review failed:", err);
     return NextResponse.json(

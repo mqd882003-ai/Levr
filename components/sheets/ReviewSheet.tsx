@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ReviewSuggestion } from "@/app/api/review/route";
+import { resolveCategoryProposal } from "@/app/board/actions";
+import type { CategoryProposal, ReviewSuggestion } from "@/app/api/review/route";
 import { SheetHead } from "@/components/sheets/Sheet";
 
 type Phase = "loading" | "questions" | "suggestions" | "error";
@@ -24,6 +25,7 @@ export default function ReviewSheet({
   const [answers, setAnswers] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<ReviewSuggestion[]>([]);
   const [resolved, setResolved] = useState<Record<string, "applied" | "dismissed">>({});
+  const [proposals, setProposals] = useState<CategoryProposal[]>([]);
   const [error, setError] = useState("");
 
   const run = useCallback(
@@ -38,9 +40,11 @@ export default function ReviewSheet({
         const data = (await res.json()) as {
           questions?: string[];
           suggestions?: ReviewSuggestion[];
+          categoryProposals?: CategoryProposal[];
           error?: string;
         };
         if (!res.ok) throw new Error(data.error || "Review failed");
+        setProposals(data.categoryProposals ?? []);
         if (data.questions?.length) {
           setQuestions(data.questions);
           setAnswers(data.questions.map(() => ""));
@@ -67,6 +71,12 @@ export default function ReviewSheet({
   const handleApply = async (s: ReviewSuggestion) => {
     const ok = await onApply(s);
     if (ok) setResolved((r) => ({ ...r, [keyOf(s)]: "applied" }));
+  };
+
+  // A3.1: batched confirm/dismiss of classifier-proposed categories.
+  const handleProposal = async (proposal: CategoryProposal, approve: boolean) => {
+    const res = await resolveCategoryProposal(proposal.id, approve);
+    if (res.ok) setProposals((prev) => prev.filter((x) => x.id !== proposal.id));
   };
 
   const open = suggestions.filter((s) => !resolved[keyOf(s)]);
@@ -129,6 +139,37 @@ export default function ReviewSheet({
               Here you go
             </button>
           </div>
+        </>
+      )}
+      {(phase === "suggestions" || phase === "questions") && proposals.length > 0 && (
+        <>
+          <div className="sheet-sub" style={{ marginBottom: 10 }}>
+            New task categories I&apos;d like to start tracking:
+          </div>
+          {proposals.map((proposal) => (
+            <div className="sug-item" key={proposal.id}>
+              <div className="sug-what">{proposal.name}</div>
+              <div className="sug-why">
+                Some recent tasks didn&apos;t fit the existing categories.
+              </div>
+              <div className="sug-actions">
+                <button
+                  type="button"
+                  className="btn-ghost pressable"
+                  onClick={() => void handleProposal(proposal, false)}
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary pressable"
+                  onClick={() => void handleProposal(proposal, true)}
+                >
+                  Add category
+                </button>
+              </div>
+            </div>
+          ))}
         </>
       )}
       {phase === "suggestions" &&

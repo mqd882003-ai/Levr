@@ -10,7 +10,7 @@ import type { AppSettings, Delegation, Person } from "@/lib/types";
 export interface NotifyResult {
   sent: boolean;
   channel: Person["preferred_channel"] | null;
-  skipped?: "notifications_off";
+  skipped?: "notifications_off" | "no_contact";
   error?: string;
 }
 
@@ -39,9 +39,21 @@ export async function notifyAssignment(delegationId: string): Promise<NotifyResu
 
   const senderName = settingsRes.data?.user_name || "your teammate";
   const task = delegation.expected_outcome ?? "a new task";
-  const message = `${senderName} just handed you a task: ${task}`;
+  // A5: silent by default — only the exception gets the unmissable prefix.
+  // Same wording across all channels for v1.
+  const message = delegation.confirm_first
+    ? `⚠️ Confirm with ${senderName} before starting — ${task}`
+    : `${senderName} just handed you a task: ${task}`;
 
   const channel = person.preferred_channel;
+  // A1: a person added inline may have no contact info yet — that's a quiet
+  // skip, not a failure.
+  if (
+    (channel === "sms" && !person.phone_number?.trim()) ||
+    (channel === "email" && !person.email?.trim())
+  ) {
+    return { sent: false, channel, skipped: "no_contact" };
+  }
   const result =
     channel === "sms"
       ? await sendSms(person.phone_number ?? "", message)

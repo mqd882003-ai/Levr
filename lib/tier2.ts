@@ -1,7 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabase/server";
+import { proposeCategory } from "@/lib/evolve";
 import type {
   Business,
+  Category,
   Correction,
   Delegation,
   Entry,
@@ -28,11 +30,12 @@ export interface Tier2Context {
   people: Person[];
   delegations: Delegation[];
   corrections: Correction[];
+  categories: Category[];
 }
 
 export async function loadTier2Context(): Promise<Tier2Context> {
   const db = supabaseServer();
-  const [businesses, projects, people, delegations, corrections] = await Promise.all([
+  const [businesses, projects, people, delegations, corrections, categories] = await Promise.all([
     db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
     db.from("projects").select("*").then(unwrap<Project>),
     db.from("people").select("*").then(unwrap<Person>),
@@ -48,8 +51,9 @@ export async function loadTier2Context(): Promise<Tier2Context> {
       .order("created_at", { ascending: false })
       .limit(CORRECTIONS_WINDOW)
       .then(unwrap<Correction>),
+    db.from("categories").select("*").eq("status", "active").then(unwrap<Category>),
   ]);
-  return { businesses, projects, people, delegations, corrections };
+  return { businesses, projects, people, delegations, corrections, categories };
 }
 
 // All dynamic text embedded via JSON.stringify (spec §Known failure mode).
@@ -92,6 +96,7 @@ export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
     "\nTeam (capability notes + recent delegation history): " + JSON.stringify(team) +
     "\nHow the founder has corrected past AI calls (most recent first): " +
     JSON.stringify(pastCorrections) +
+    "\nTask categories (active vocabulary): " + JSON.stringify(ctx.categories.map((c) => c.name)) +
     "\n\nCaptured entry: " + JSON.stringify(entry.text) +
     "\nFirst-pass classification: " + JSON.stringify(firstPass) +
     "\n\nDecide:\n" +
@@ -101,8 +106,10 @@ export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
     '- "summary": one board-readable line, max 12 words (keep the first-pass summary unless it misses the point).\n' +
     '- "suggested_owner_id": best team member id when is_leverage is false (weigh notes and verdicts; rule out pull-backs on similar work), else null.\n' +
     '- "checklist": when is_leverage is false, 2-5 short concrete sub-steps in order (imperative, max 8 words each); else [].\n' +
+    '- "category": for delegate-able tasks, the single best fit from the active vocabulary, or null.\n' +
+    '- "propose_category": ONLY if is_leverage is false and nothing in the vocabulary genuinely fits: a short 1-3 word new category name; else null.\n' +
     '- "reason": one sentence, only when you disagree with the first-pass is_leverage or business call; else null.\n\n' +
-    'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,"summary":"...","suggested_owner_id":...,"checklist":[...],"reason":...}'
+    'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,"summary":"...","suggested_owner_id":...,"checklist":[...],"category":...,"propose_category":...,"reason":...}'
   );
 }
 
@@ -113,6 +120,8 @@ interface Tier2Result {
   summary: string;
   suggested_owner_id: string | null;
   checklist: string[];
+  category: string | null;
+  propose_category: string | null;
   reason: string | null;
 }
 
@@ -142,6 +151,14 @@ function parseTier2(raw: string, ctx: Tier2Context, fallbackSummary: string): Ti
           .filter((s): s is string => typeof s === "string" && Boolean(s.trim()))
           .slice(0, 5)
       : [],
+    category:
+      typeof p.category === "string" && ctx.categories.some((c) => c.name === p.category)
+        ? (p.category as string)
+        : null,
+    propose_category:
+      typeof p.propose_category === "string" && p.propose_category.trim()
+        ? p.propose_category.trim()
+        : null,
     reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
   };
 }
@@ -261,11 +278,15 @@ export async function runTier2(entryId: string): Promise<void> {
         is_leverage: result.is_leverage,
         summary: result.summary,
         suggested_person_id: result.suggested_owner_id,
+        category: result.category ?? entry.category,
         tier2_status: changed ? "revised" : "confirmed",
         tier2_reason: result.reason,
         tier2_at: new Date().toISOString(),
       })
       .eq("id", entryId);
+
+    // A3.1: brand-new category proposals go to the Review batch, never applied silently.
+    if (result.propose_category) await proposeCategory(result.propose_category);
 
     // Checklist only for delegated items, and only if none exists yet.
     if (result.is_leverage === false && result.checklist.length) {

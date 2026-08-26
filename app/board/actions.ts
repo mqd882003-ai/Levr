@@ -1,11 +1,14 @@
 "use server";
 
+import { after } from "next/server";
+import { categorizeDelegation, synthesizeNotes } from "@/lib/evolve";
 import { notifyAssignment } from "@/lib/notify";
 import { supabaseServer } from "@/lib/supabase/server";
 import type {
   ChecklistItem,
   CorrectionField,
   Delegation,
+  Diagnosis,
   Entry,
   Outcome,
   Person,
@@ -38,6 +41,13 @@ interface SaveEntryInput {
   projectName: string;
   isLeverage: boolean | null;
   ownerId: string | null;
+  // A1: hand off to a typed name not yet in Team — creates a minimal person
+  // row (name + inferred business) and assigns in the same action.
+  newOwnerName?: string;
+  // A5: "Confirm with me first" toggle for this assignment.
+  confirmFirst?: boolean;
+  // A3.6: the trust flag that was showing when Dave assigned anyway.
+  flagShown?: string | null;
 }
 
 export interface SaveEntryResult {
@@ -48,11 +58,12 @@ export interface SaveEntryResult {
   ownerId?: string | null;
   openDelegationId?: string | null;
   assignedName?: string | null; // set only when a NEW assignment was created
+  createdPerson?: Person; // A1: the minimal person row created inline
   // Outcome of the single assignment message (only on new assignments).
   notification?: {
     sent: boolean;
     channel: string | null;
-    skipped?: "notifications_off";
+    skipped?: "notifications_off" | "no_contact";
     error?: string;
   };
 }
@@ -66,7 +77,21 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
     const db = supabaseServer();
     const summary = input.summary.trim();
     const projectName = input.projectName.trim();
-    const desiredOwner = input.isLeverage === false ? input.ownerId : null;
+
+    // A1: create the not-yet-in-Team person inline, then assign them.
+    let createdPerson: Person | undefined;
+    let ownerToAssign = input.ownerId;
+    if (!ownerToAssign && input.newOwnerName?.trim() && input.isLeverage === false) {
+      const created = await db
+        .from("people")
+        .insert({ name: input.newOwnerName.trim(), business_id: input.businessId })
+        .select()
+        .single<Person>();
+      if (created.error || !created.data) throw new Error(created.error?.message ?? "Couldn't add them");
+      createdPerson = created.data;
+      ownerToAssign = created.data.id;
+    }
+    const desiredOwner = input.isLeverage === false ? ownerToAssign : null;
 
     // Snapshot the pre-edit state so user corrections can be logged.
     const beforeRes = await db
@@ -148,6 +173,9 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
           entry_id: input.id,
           person_id: desiredOwner,
           expected_outcome: summary || null,
+          category: before?.category ?? null,
+          confirm_first: Boolean(input.confirmFirst),
+          flag_shown: input.flagShown ?? null,
         })
         .select()
         .single<Delegation>();
@@ -214,6 +242,7 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
       ownerId,
       openDelegationId,
       assignedName,
+      createdPerson,
       notification,
     };
   } catch (err) {
@@ -322,19 +351,79 @@ export async function closeoutDelegation(
   outcome: Outcome,
   verdict: Verdict | null,
   note: string,
+  diagnosis: Diagnosis | null = null,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const db = supabaseServer();
+    const current = await db
+      .from("delegations")
+      .select("*")
+      .eq("id", delegationId)
+      .maybeSingle<Delegation>();
+    // A3.1: category is stamped at closeout — copy from the entry when the
+    // delegation doesn't carry one yet.
+    let category = current.data?.category ?? null;
+    if (!category && current.data) {
+      const entry = await db
+        .from("entries")
+        .select("category")
+        .eq("id", current.data.entry_id)
+        .maybeSingle<Pick<Entry, "category">>();
+      category = entry.data?.category ?? null;
+    }
     const updated = await db
       .from("delegations")
       .update({
         actual_outcome: outcome,
         verdict,
+        diagnosis,
         outcome_note: note.trim() || null,
+        category,
         resolved_at: new Date().toISOString(),
       })
       .eq("id", delegationId);
     if (updated.error) throw new Error(updated.error.message);
+
+    // Off the critical path: classifier fallback for still-uncategorized
+    // tasks (A3.1) and the rolling capability-notes read (A2, toggle-gated).
+    const personId = current.data?.person_id ?? null;
+    after(async () => {
+      if (!category) await categorizeDelegation(delegationId);
+      if (personId) await synthesizeNotes(personId);
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Update failed" };
+  }
+}
+
+// A6: "Not now" — deliberate park. Leaves the decay pool and quietly comes
+// back in ~2½ weeks.
+export async function parkEntry(
+  id: string,
+): Promise<{ ok: boolean; error?: string; parkedUntil?: string }> {
+  try {
+    const db = supabaseServer();
+    const parkedUntil = new Date(Date.now() + 17 * 86400000).toISOString();
+    const res = await db.from("entries").update({ parked_until: parkedUntil }).eq("id", id);
+    if (res.error) throw new Error(res.error.message);
+    return { ok: true, parkedUntil };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Park failed" };
+  }
+}
+
+// A3.1: Review-batch handling of classifier-proposed categories.
+export async function resolveCategoryProposal(
+  id: string,
+  approve: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const db = supabaseServer();
+    const res = approve
+      ? await db.from("categories").update({ status: "active" }).eq("id", id)
+      : await db.from("categories").delete().eq("id", id).eq("status", "proposed");
+    if (res.error) throw new Error(res.error.message);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Update failed" };

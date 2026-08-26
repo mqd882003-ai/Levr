@@ -5,6 +5,20 @@ export type EntryStatus = "open" | "done";
 export type EntrySource = "voice" | "text";
 export type Outcome = "done" | "late" | "not_done";
 export type Verdict = "fully_trust" | "needs_coaching" | "pull_back";
+// A4 closeout diagnosis chips; only not_ready / no_follow_through feed trust.
+export type Diagnosis =
+  | "unclear_brief"
+  | "not_ready"
+  | "bandwidth"
+  | "blocked"
+  | "no_follow_through";
+
+export interface Category {
+  id: string;
+  name: string;
+  status: "active" | "proposed";
+  created_at: string;
+}
 
 export interface Business {
   id: string;
@@ -49,6 +63,8 @@ export interface Entry {
   tier2_status: Tier2Status | null;
   tier2_reason: string | null;
   tier2_at: string | null;
+  category: string | null;
+  parked_until: string | null;
 }
 
 export interface ChecklistItem {
@@ -88,6 +104,10 @@ export interface Delegation {
   outcome_note: string | null;
   assigned_at: string;
   resolved_at: string | null;
+  category: string | null;
+  confirm_first: boolean;
+  diagnosis: Diagnosis | null;
+  flag_shown: string | null;
 }
 
 export interface AppSettings {
@@ -95,6 +115,7 @@ export interface AppSettings {
   user_name: string;
   notifications_enabled: boolean;
   slack_enabled: boolean;
+  auto_notes: boolean;
 }
 
 // Flattened view model the Board screen works with (entry + joined names +
@@ -116,6 +137,19 @@ export interface BoardEntry {
   tier2Status: Tier2Status | null;
   tier2Reason: string | null;
   checklist: Array<Pick<ChecklistItem, "id" | "text" | "done">>;
+  category: string | null;
+  parkedUntil: string | null;
+}
+
+// Slim resolved-history rows the assignment sheet uses for per-category trust.
+export interface TrustEvidence {
+  person_id: string;
+  category: string | null;
+  resolved_at: string;
+  actual_outcome: Outcome | null;
+  verdict: Verdict | null;
+  diagnosis: Diagnosis | null;
+  expected_outcome: string | null;
 }
 
 // What the classifier returns (see lib/classify.ts).
@@ -125,4 +159,5 @@ export interface Classification {
   is_leverage: boolean | null;
   summary: string;
   suggested_owner_id: string | null;
+  category: string | null;
 }

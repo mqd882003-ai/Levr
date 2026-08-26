@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Business, Classification, Delegation, Person, Project } from "@/lib/types";
+import type { Business, Category, Classification, Delegation, Person, Project } from "@/lib/types";
 
 // Per docs/levr-requirements.md § Classification backend: short structured-output
 // task, pinned to Haiku 4.5. Do not upgrade without a concrete accuracy reason.
@@ -10,6 +10,7 @@ export interface ClassifyContext {
   projects: Project[];
   people: Person[];
   delegations: Delegation[]; // recent history, used to weigh owner suggestions
+  categories: Category[]; // active task-category vocabulary (A3)
 }
 
 // All dynamic text is embedded via JSON.stringify — never hand-escaped
@@ -38,14 +39,16 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     "Businesses: " + JSON.stringify(businessNames) +
     "\nExisting projects: " + JSON.stringify(projectNames) +
     "\nTeam (with capability notes and recent delegation verdicts): " + JSON.stringify(team) +
+    "\nTask categories: " + JSON.stringify(ctx.categories.map((c) => c.name)) +
     "\n\nEntry: " + JSON.stringify(text) +
     "\n\nDecide:\n" +
     '- "business": which business this belongs to — exactly one name from the Businesses list, or null if unclear.\n' +
     '- "project": an existing project name it belongs to (fuzzy match), or a short NEW 2-4 word project name if it clearly starts one, or null.\n' +
     '- "is_leverage": true if this is founder-only work (strategy, judgment, key relationships, pricing, hiring); false if operational/repeatable work someone else could do; null only if genuinely impossible to tell.\n' +
     '- "summary": the entry compressed to one board-readable line, max 12 words.\n' +
-    '- "suggested_owner_id": only when is_leverage is false — the id of the best team member, weighing role, capability notes, and past verdicts. Rule out anyone whose notes or history say pull-back on similar work. Otherwise null.\n\n' +
-    'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,"summary":"...","suggested_owner_id":...}'
+    '- "suggested_owner_id": only when is_leverage is false — the id of the best team member, weighing role, capability notes, and past verdicts. Rule out anyone whose notes or history say pull-back on similar work. Otherwise null.\n' +
+    '- "category": for delegate-able tasks, the single best fit from the Task categories list, or null if none fits (null for founder-only items).\n\n' +
+    'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,"summary":"...","suggested_owner_id":...,"category":...}'
   );
 }
 
@@ -91,5 +94,10 @@ export async function classifyEntry(
       ? (p.suggested_owner_id as string)
       : null;
 
-  return { business, project, is_leverage, summary, suggested_owner_id };
+  const category =
+    typeof p.category === "string" && ctx.categories.some((c) => c.name === p.category)
+      ? (p.category as string)
+      : null;
+
+  return { business, project, is_leverage, summary, suggested_owner_id, category };
 }

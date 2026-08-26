@@ -7,12 +7,14 @@ export async function updateSettings(patch: {
   userName?: string;
   notifications?: boolean;
   slack?: boolean;
+  autoNotes?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const row: Record<string, unknown> = {};
     if (patch.userName !== undefined) row.user_name = patch.userName.trim() || "there";
     if (patch.notifications !== undefined) row.notifications_enabled = patch.notifications;
     if (patch.slack !== undefined) row.slack_enabled = patch.slack;
+    if (patch.autoNotes !== undefined) row.auto_notes = patch.autoNotes;
     const db = supabaseServer();
     const res = await db.from("app_settings").update(row).eq("id", true);
     if (res.error) throw new Error(res.error.message);

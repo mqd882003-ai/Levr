@@ -27,10 +27,22 @@ export default function EntryRow({
     ? people.find((p) => p.id === entry.ownerId) ?? null
     : null;
 
+  // A6: decay signal — unsorted or unowned, sitting untouched past the flat
+  // timer, and not deliberately parked.
+  const DECAY_MS = 6 * 86400000;
+  const parked = Boolean(
+    entry.parkedUntil && new Date(entry.parkedUntil).getTime() > Date.now(),
+  );
+  const stale =
+    !entry.done &&
+    !parked &&
+    (entry.isLeverage === null || (entry.isLeverage === false && !entry.ownerId)) &&
+    Date.now() - new Date(entry.capturedAt).getTime() > DECAY_MS;
+
   return (
     <SwipeRow
       rowId={`row-${entry.id}`}
-      rowClass={`row ${kind}${entry.done ? " done" : ""}`}
+      rowClass={`row ${kind}${entry.done ? " done" : ""}${stale ? " stale" : ""}`}
       wrapClass={flash ? "flash" : ""}
       completeLabel={entry.done ? "Undo" : "Done"}
       onComplete={() => onToggleDone(entry)}
@@ -42,7 +54,9 @@ export default function EntryRow({
         {(entry.businessName ||
           entry.projectName ||
           entry.checklist.length > 0 ||
-          entry.tier2Status === "flagged") && (
+          entry.tier2Status === "flagged" ||
+          stale ||
+          parked) && (
           <div className="row-meta">
             {entry.businessName && <span className="biz">{entry.businessName}</span>}
             {entry.projectName && <span>{entry.projectName}</span>}
@@ -52,6 +66,8 @@ export default function EntryRow({
               </span>
             )}
             {entry.tier2Status === "flagged" && <span className="reclass">Reclassify?</span>}
+            {stale && <span className="decide">Needs a decision</span>}
+            {parked && <span className="parked-tag">Parked</span>}
           </div>
         )}
       </div>

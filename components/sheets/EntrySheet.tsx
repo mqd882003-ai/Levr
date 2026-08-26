@@ -8,7 +8,9 @@ import {
 } from "@/app/board/actions";
 import { SheetHead } from "@/components/sheets/Sheet";
 import Avatar from "@/components/ui/Avatar";
-import type { BoardEntry, Business, Person } from "@/lib/types";
+import { avatarTint, initials } from "@/lib/avatar";
+import { readTrust } from "@/lib/trust";
+import type { BoardEntry, Business, Person, TrustEvidence } from "@/lib/types";
 
 type ChecklistState = BoardEntry["checklist"];
 
@@ -18,6 +20,9 @@ export interface EntrySheetSave {
   projectName: string;
   isLeverage: boolean | null;
   ownerId: string | null;
+  newOwnerName?: string; // A1: inline-create + assign
+  confirmFirst: boolean; // A5
+  flagShown: string | null; // A3.6: trust flag visible at assignment
 }
 
 // Tap-to-expand + correct the classification (requirements §Interaction model
@@ -26,19 +31,23 @@ export default function EntrySheet({
   entry,
   businesses,
   people,
+  evidence,
   saving,
   onSave,
   onDelete,
   onClose,
+  onPark,
   onChecklistChanged,
 }: {
   entry: BoardEntry;
   businesses: Business[];
   people: Person[];
+  evidence: TrustEvidence[];
   saving: boolean;
   onSave: (input: EntrySheetSave) => void;
   onDelete: () => void;
   onClose: () => void;
+  onPark: () => void;
   onChecklistChanged: (entryId: string, checklist: ChecklistState) => void;
 }) {
   const [summary, setSummary] = useState(entry.summary);
@@ -48,6 +57,9 @@ export default function EntrySheet({
   const [ownerId, setOwnerId] = useState<string | null>(entry.ownerId);
   const [checklist, setChecklist] = useState<ChecklistState>(entry.checklist);
   const [newStep, setNewStep] = useState("");
+  const [ownerQuery, setOwnerQuery] = useState("");
+  const [newOwnerName, setNewOwnerName] = useState<string | null>(null);
+  const [confirmFirst, setConfirmFirst] = useState(false);
 
   useEffect(() => {
     setSummary(entry.summary);
@@ -57,6 +69,9 @@ export default function EntrySheet({
     setOwnerId(entry.ownerId);
     setChecklist(entry.checklist);
     setNewStep("");
+    setOwnerQuery("");
+    setNewOwnerName(null);
+    setConfirmFirst(false);
   }, [entry]);
 
   const patchChecklist = (next: ChecklistState) => {
@@ -90,6 +105,33 @@ export default function EntrySheet({
       businessId && p.business_id === businessId ? 0 : p.business_id ? 2 : 1;
     return rank(a) - rank(b);
   });
+
+  // A1: hand off to a typed name. If it fuzzy-matches someone, select them;
+  // otherwise stage an inline create-and-assign.
+  const handleAddByName = () => {
+    const name = ownerQuery.trim();
+    if (!name) return;
+    const match = people.find(
+      (p) =>
+        p.name.toLowerCase() === name.toLowerCase() ||
+        p.name.toLowerCase().startsWith(name.toLowerCase()),
+    );
+    if (match) {
+      setOwnerId(match.id);
+      setNewOwnerName(null);
+    } else {
+      setNewOwnerName(name);
+      setOwnerId(null);
+    }
+    setOwnerQuery("");
+  };
+
+  // A3.5: per-category read for the selected person, at the moment of handoff.
+  const trust =
+    lev === false && ownerId && entry.category
+      ? readTrust(evidence, ownerId, entry.category)
+      : null;
+  const flagShown = trust?.state === "flag" ? (trust.line ?? null) : null;
 
   return (
     <>
@@ -197,10 +239,63 @@ export default function EntrySheet({
                   {p.name}
                 </button>
               ))
-            ) : (
-              <span>No one on Team yet.</span>
+            ) : null}
+            {newOwnerName && (
+              <button
+                type="button"
+                className="pressable on"
+                onClick={() => setNewOwnerName(null)}
+              >
+                <span className="avatar" style={{ background: avatarTint(newOwnerName) }}>
+                  {initials(newOwnerName)}
+                </span>
+                {newOwnerName}
+              </button>
             )}
           </div>
+          {newOwnerName && (
+            <div className="new-owner-note">
+              {newOwnerName} isn&apos;t in your Team yet &mdash; saving adds them and hands this
+              off. Contact info can come later.
+            </div>
+          )}
+          <div className="check-add" style={{ marginTop: 10 }}>
+            <input
+              value={ownerQuery}
+              placeholder={candidates.length ? "Someone else? Type a name" : "Type a name to hand off to"}
+              onChange={(e) => setOwnerQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddByName();
+                }
+              }}
+            />
+            <button type="button" className="pressable" onClick={handleAddByName}>
+              Add
+            </button>
+          </div>
+          {trust?.line && (
+            <div className={"trust-line" + (trust.state === "flag" ? " flag" : "")}>
+              {trust.line}
+            </div>
+          )}
+          {(ownerId || newOwnerName) && (
+            <div className="confirm-first-row">
+              <span>
+                Confirm with me first
+                <small>Off = decide and go. On = the message tells them to check with you before starting.</small>
+              </span>
+              <button
+                type="button"
+                className={"switch" + (confirmFirst ? " on" : "")}
+                role="switch"
+                aria-checked={confirmFirst}
+                aria-label="Confirm with me first"
+                onClick={() => setConfirmFirst((v) => !v)}
+              />
+            </div>
+          )}
         </div>
       )}
       {lev === false && (
@@ -252,6 +347,17 @@ export default function EntrySheet({
         </div>
       )}
       <div className="actions">
+        {!entry.done && (
+          <button
+            type="button"
+            className="btn-ghost pressable"
+            style={{ flex: "0 0 auto", padding: "0 16px" }}
+            onClick={onPark}
+            disabled={saving}
+          >
+            Not now
+          </button>
+        )}
         <button
           type="button"
           className="btn-danger pressable"
@@ -274,6 +380,10 @@ export default function EntrySheet({
               projectName,
               isLeverage: lev,
               ownerId: lev === false ? ownerId : null,
+              newOwnerName:
+                lev === false && !ownerId && newOwnerName ? newOwnerName : undefined,
+              confirmFirst,
+              flagShown,
             })
           }
         >

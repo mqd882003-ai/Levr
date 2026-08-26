@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   user_name: "David",
   notifications_enabled: true,
   slack_enabled: false,
+  auto_notes: false,
 };
 
 export default async function SettingsPage() {

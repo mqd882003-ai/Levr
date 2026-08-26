@@ -181,6 +181,22 @@ Approved-identity refinements added in the real build; everything else above sti
 - **Pulse bar:** faint ticks at 25/50/75; one-time shimmer sweep on the fill after it lands.
 - **Empty states:** may carry a 28px stroke doodle above the headline (mug for Your 20%, paper plane for Delegated) in `--dim`.
 
+## 9c. Delegation Evolution additions (2026-08-25, approved addendum)
+
+- **Trust line** (assignment sheet, A3.5): mono 11.5px line under the owner picker. Healthy/floor reads
+  are `--dim` plain text; a flag becomes a signal-tint pill block (`--signal-tint` bg, `--signal-text`,
+  amber border) — the only place trust surfaces, ever.
+- **Someone-else input** (A1): reuses the `.check-add` input+button row under the people pills; a staged
+  new person renders as a selected (dark) pill + a one-line muted note beneath.
+- **Confirm-first row** (A5): inset `--card-2` row with the standard switch; label + 12px dim explainer.
+- **Diagnosis chips** (A4): pill buttons (13.5px, `--card-2`/`--line`); selected = `--noise-tint` bg,
+  `--noise` border, text `--text` 600. Shown only when the closeout outcome isn't a clean Done.
+- **Decay signal** (A6): row border goes dashed `rgba(201,137,26,.45)` + mono meta chip "Needs a
+  decision" in signal-tint. **Parked**: quiet `--card-2` mono chip "Parked"; no other emphasis.
+- **No-contact indicator** (A1): second `.p-role` line on Team cards, `--signal-text` 12px,
+  "No contact info yet".
+- Category proposals ride the existing Review sheet `.sug-item` cards with Add category / Dismiss.
+
 ## 10. Target folder tree (Next.js App Router build)
 
 ```

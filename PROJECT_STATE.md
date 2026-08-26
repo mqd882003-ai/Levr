@@ -1,8 +1,8 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-25 (night)** — quick-add/owner-picker/'Hand off to' fixes pushed (`69d6ff6`) and live on
-> levr-six.vercel.app; Delegation Evolution addendum drafted (pending approval).
+> Last updated: **2026-08-25 (late night)** — Delegation Evolution addendum APPROVED, built (migration 003),
+> live-tested end-to-end, committed + pushed.
 
 ## What this project is
 
@@ -34,7 +34,8 @@ owner, and closing them out builds each person's delegation history on Team.
 | Phase 2: Tier 2 pipeline + checklists + corrections + Review with me | ✅ Built (migration 002), live-tested end-to-end |
 | Delegation notifications (SMS via Twilio) | ✅ LIVE — carrier-confirmed delivery to Danny 2026-08-25, sends from **+15033038668** |
 | Swipe gestures on Board rows (right=Done, left=Delete w/ confirm tap, no checkbox) | ✅ Built, device-verified by Dave |
-| Perf: loading skeletons + router staleTimes(30s) + Vercel region pin pdx1 | ✅ Built (verified locally; region pin takes effect on next deploy) |
+| Perf: loading skeletons + router staleTimes(30s) + Vercel region pin pdx1 | ✅ Built (verified locally; region pin verified live on levr-six) |
+| Delegation Evolution addendum A1–A6 (migration 003) | ✅ Built, live-tested end-to-end (see specifics below) |
 | PWA icons (192/512 any, 512 maskable, 180 apple-touch PNGs) | ✅ Generated + wired into manifest/layout |
 | Vercel deploy | ✅ Live at **https://levr-six.vercel.app** — health-checked (all routes 200, pdx1 pin active, env fixed after ANTHROPIC_API_KEY was found empty), classification + Tier 2 verified running in production, /api/env-check deleted |
 
@@ -173,6 +174,33 @@ owner, and closing them out builds each person's delegation history on Team.
   + dead nav on the phone. Fixed via `allowedDevOrigins: ["192.168.0.229"]` in next.config.ts — update
   the IP if the PC's DHCP lease changes.
 
+## Delegation Evolution specifics (2026-08-25 late night)
+
+- **Schema (003)**: `categories` table (8-item starter vocabulary + `proposed` status),
+  `entries.category/parked_until`, `delegations.category/confirm_first/diagnosis/flag_shown`,
+  `app_settings.auto_notes`. Applied via db:migrate.
+- **A1**: "Someone else? Type a name" in the Hand-off area; fuzzy match selects an existing person,
+  else save creates a minimal people row (business inferred) and assigns in one action; toast reads
+  "(no contact info yet)"; Team card shows a no-contact line. notify.ts skips quietly (`no_contact`).
+- **A2**: Settings toggle "Auto-update capability notes" (OFF by default — still off, Dave hasn't
+  opted in). When on, closeout fires lib/evolve.ts synthesizeNotes (sonnet, persona) which rewrites ONLY
+  the portion below the "⸻ Levr's read ⸻" marker in capability_notes; manual text above is never touched.
+- **A3**: Tier 1 + Tier 2 assign `category` from the active vocabulary at capture; closeout stamps it on
+  the delegation (Haiku fallback categorize if null). lib/trust.ts: floor 3, window last 5, flag at 2+
+  misses; ONLY diagnosis not_ready/no_follow_through count (legacy rows: not_done/pull_back). Trust line
+  renders in the assignment sheet only; assigning despite a flag records the flag text (`flag_shown`).
+  New-category proposals (status=proposed) surface in Review with Add/Dismiss.
+- **A4**: 5 diagnosis chips at closeout (shown when outcome ≠ Done): unclear_brief / not_ready /
+  bandwidth / blocked / no_follow_through. Chips 1/3/4 never touch trust evidence.
+- **A5**: "Confirm with me first" toggle per assignment (off default); message becomes
+  "⚠️ Confirm with Dave before starting — [task]" on all channels. NOTE: prefixed SMS not yet
+  live-fired (test person had no phone) — first real confirm-first assignment is the live test.
+- **A6**: decay = dashed amber row + "Needs a decision" chip when unsorted/unowned > 6 days and not
+  parked; "Not now" in the sheet parks for 17 days (quiet "Parked" chip). Flat timer, tune later.
+- Verified live on a prod build: Tier-1 categorization first-try, A1 create+assign, A4 chip persistence,
+  A3 flag/floor/override logging, A6 decay+park, A2 synthesis (manual text preserved), proposal
+  approve/dismiss. All test rows/people/categories deleted; auto_notes returned to off.
+
 ## Open items (for the record)
 
 1. **Email notifications**: Resend integration built but `RESEND_API_KEY` is a placeholder — not live.
@@ -181,9 +209,6 @@ owner, and closing them out builds each person's delegation history on Team.
    local number instead (see Notifications specifics).
 3. **Team roster**: Danny + Yana exist — Stella and Chi still need to be added.
 4. Slack channel needs `SLACK_WEBHOOK_URL` whenever a workspace is actually connected.
-5. **Delegation Evolution addendum** (`docs/levr-requirements.md` §Addendum, commit `c28b05a`) — DRAFT,
-   not approved for build. Five design decisions owed by Dave: ① auto-notes as a separate `system_notes`
-   block vs merged into his text, ② category vocabulary (classifier-minted evolving set vs fixed list),
-   ③ decay threshold (proposed 3 days), ④ optional closeout diagnosis chips y/n, ⑤ escalation tag
-   included in the notification SMS y/n. Proposed build order: 003 migration + A1 + A6, then A3, then A2,
-   A4 tone woven throughout, A5 alongside A1.
+5. **A5 prefixed SMS**: the "⚠️ Confirm with Dave before starting" message hasn't been live-fired yet —
+   verify delivery/wording on the first real confirm-first assignment.
+6. **Auto-notes toggle**: still OFF (deliberate phase-in) — Dave flips it in Settings when ready.

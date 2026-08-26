@@ -8,6 +8,7 @@ import type {
   Entry,
   Person,
   Project,
+  TrustEvidence,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -80,14 +81,30 @@ export default async function BoardPage({
       checklist: checklistItems
         .filter((c) => c.entry_id === e.id)
         .map((c) => ({ id: c.id, text: c.text, done: c.done })),
+      category: e.category,
+      parkedUntil: e.parked_until,
     };
   });
+
+  // A3: slim resolved rows for the assignment sheet's per-category trust read.
+  const evidence: TrustEvidence[] = delegations
+    .filter((d) => d.resolved_at && d.person_id)
+    .map((d) => ({
+      person_id: d.person_id as string,
+      category: d.category,
+      resolved_at: d.resolved_at as string,
+      actual_outcome: d.actual_outcome,
+      verdict: d.verdict,
+      diagnosis: d.diagnosis,
+      expected_outcome: d.expected_outcome,
+    }));
 
   return (
     <BoardClient
       initialEntries={board}
       businesses={businesses}
       people={people}
+      evidence={evidence}
       newId={newId ?? null}
     />
   );
