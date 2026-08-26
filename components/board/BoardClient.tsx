@@ -29,6 +29,7 @@ import type {
   Entry,
   Outcome,
   Person,
+  ProjectType,
   TrustEvidence,
   Verdict,
 } from "@/lib/types";
@@ -36,12 +37,14 @@ import type {
 export default function BoardClient({
   initialEntries,
   businesses,
+  businessProjectType,
   people,
   evidence,
   newId,
 }: {
   initialEntries: BoardEntry[];
   businesses: Business[];
+  businessProjectType: Record<string, ProjectType>;
   people: Person[];
   evidence: TrustEvidence[];
   newId: string | null;
@@ -429,6 +432,7 @@ export default function BoardClient({
           <EntrySheet
             entry={editing}
             businesses={businesses}
+            businessProjectType={businessProjectType}
             people={peopleList}
             evidence={evidence}
             saving={saving}

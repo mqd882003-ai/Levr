@@ -10,7 +10,7 @@ import { SheetHead } from "@/components/sheets/Sheet";
 import Avatar from "@/components/ui/Avatar";
 import { avatarTint, initials } from "@/lib/avatar";
 import { readTrust } from "@/lib/trust";
-import type { BoardEntry, Business, Person, TrustEvidence } from "@/lib/types";
+import type { BoardEntry, Business, Person, ProjectType, TrustEvidence } from "@/lib/types";
 
 type ChecklistState = BoardEntry["checklist"];
 
@@ -30,6 +30,7 @@ export interface EntrySheetSave {
 export default function EntrySheet({
   entry,
   businesses,
+  businessProjectType,
   people,
   evidence,
   saving,
@@ -41,6 +42,7 @@ export default function EntrySheet({
 }: {
   entry: BoardEntry;
   businesses: Business[];
+  businessProjectType: Record<string, ProjectType>;
   people: Person[];
   evidence: TrustEvidence[];
   saving: boolean;
@@ -98,6 +100,14 @@ export default function EntrySheet({
     }
   };
 
+  // HANDOFF task 4: a personal_project business (3D Scan, Backtesting) never
+  // has anyone to delegate to — is_leverage defaults true and isn't offered
+  // as a toggle at all, reactive to whichever business is currently selected.
+  const isPersonalProject = businessId
+    ? businessProjectType[businessId] === "personal_project"
+    : false;
+  const effectiveLev = isPersonalProject ? true : lev;
+
   // Everyone is offerable (cross-business handoffs are real); people from the
   // entry's business just list first.
   const candidates = [...people].sort((a, b) => {
@@ -128,7 +138,7 @@ export default function EntrySheet({
 
   // A3.5: per-category read for the selected person, at the moment of handoff.
   const trust =
-    lev === false && ownerId && entry.category
+    effectiveLev === false && ownerId && entry.category
       ? readTrust(evidence, ownerId, entry.category)
       : null;
   const flagShown = trust?.state === "flag" ? (trust.line ?? null) : null;
@@ -200,28 +210,35 @@ export default function EntrySheet({
           />
         </div>
       </div>
-      <div className="field">
-        <label>Type</label>
-        <div className="seg">
-          <button
-            type="button"
-            className={`pressable${lev === true ? " on-signal" : ""}`}
-            onClick={() => setLev(true)}
-          >
-            <span className="sw" />
-            Your 20%
-          </button>
-          <button
-            type="button"
-            className={`pressable${lev === false ? " on-noise" : ""}`}
-            onClick={() => setLev(false)}
-          >
-            <span className="sw" />
-            Delegate
-          </button>
+      {isPersonalProject ? (
+        <div className="field">
+          <label>Type</label>
+          <div className="sheet-sub">Personal project — always yours, nothing to delegate.</div>
         </div>
-      </div>
-      {lev === false && (
+      ) : (
+        <div className="field">
+          <label>Type</label>
+          <div className="seg">
+            <button
+              type="button"
+              className={`pressable${lev === true ? " on-signal" : ""}`}
+              onClick={() => setLev(true)}
+            >
+              <span className="sw" />
+              Your 20%
+            </button>
+            <button
+              type="button"
+              className={`pressable${lev === false ? " on-noise" : ""}`}
+              onClick={() => setLev(false)}
+            >
+              <span className="sw" />
+              Delegate
+            </button>
+          </div>
+        </div>
+      )}
+      {effectiveLev === false && (
         <div className="field">
           <label>Hand off to</label>
           <div className="people-pick">
@@ -298,7 +315,7 @@ export default function EntrySheet({
           )}
         </div>
       )}
-      {lev === false && (
+      {effectiveLev === false && (
         <div className="field">
           <label>Steps</label>
           {checklist.map((item) => (
@@ -378,10 +395,10 @@ export default function EntrySheet({
               summary: summary.trim() || entry.summary,
               businessId: businessId || null,
               projectName,
-              isLeverage: lev,
-              ownerId: lev === false ? ownerId : null,
+              isLeverage: effectiveLev,
+              ownerId: effectiveLev === false ? ownerId : null,
               newOwnerName:
-                lev === false && !ownerId && newOwnerName ? newOwnerName : undefined,
+                effectiveLev === false && !ownerId && newOwnerName ? newOwnerName : undefined,
               confirmFirst,
               flagShown,
             })

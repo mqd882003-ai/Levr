@@ -1,6 +1,24 @@
 "use client";
 
-import type { Delegation } from "@/lib/types";
+import type { Delegation, DelegationStage } from "@/lib/types";
+
+// HANDOFF task 4: businesses with a multi-stage pipeline (e.g. Danny's volume
+// -> appointment -> close at True Home Acquisitions) track progression via
+// delegations.stage instead of the plain done/not-done outcome.
+const STAGE_LABEL: Record<DelegationStage, string> = {
+  assigned: "Assigned",
+  contacted: "Contacted",
+  appointment_set: "Appointment set",
+  closed: "Closed",
+  lost: "Lost",
+};
+const STAGE_BADGE: Record<DelegationStage, "trust" | "coach" | "pull" | "open"> = {
+  assigned: "open",
+  contacted: "coach",
+  appointment_set: "coach",
+  closed: "trust",
+  lost: "pull",
+};
 
 // The delegations table IS the history — rendered as the left-rail timeline
 // (DESIGN.md §5 Person profile). Node color follows the verdict.
@@ -21,13 +39,15 @@ export default function HistoryTimeline({ items }: { items: Delegation[] }) {
               : d.verdict === "pull_back"
                 ? "v-pull"
                 : "v-open";
-        const outcome = d.resolved_at
-          ? d.actual_outcome === "done"
-            ? (["trust", "Done"] as const)
-            : d.actual_outcome === "late"
-              ? (["coach", "Late"] as const)
-              : (["pull", "Not done"] as const)
-          : (["open", "Open"] as const);
+        const outcome = d.stage
+          ? ([STAGE_BADGE[d.stage], STAGE_LABEL[d.stage]] as const)
+          : d.resolved_at
+            ? d.actual_outcome === "done"
+              ? (["trust", "Done"] as const)
+              : d.actual_outcome === "late"
+                ? (["coach", "Late"] as const)
+                : (["pull", "Not done"] as const)
+            : (["open", "Open"] as const);
         return (
           <div key={d.id} className={`hist-item ${nodeCls}`}>
             <div className="hist-text">{d.expected_outcome ?? "—"}</div>
