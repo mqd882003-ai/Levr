@@ -1,8 +1,8 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-25 (late night)** — Delegation Evolution addendum APPROVED, built (migration 003),
-> live-tested end-to-end, committed + pushed.
+> Last updated: **2026-08-26** — Personal Config Import schema + seed (migrations 004/005) built,
+> applied, committed (`42bd0ec`), pushed to GitHub.
 
 ## What this project is
 
@@ -38,6 +38,7 @@ owner, and closing them out builds each person's delegation history on Team.
 | Delegation Evolution addendum A1–A6 (migration 003) | ✅ Built, live-tested end-to-end (see specifics below) |
 | PWA icons (192/512 any, 512 maskable, 180 apple-touch PNGs) | ✅ Generated + wired into manifest/layout |
 | Vercel deploy | ✅ Live at **https://levr-six.vercel.app** — health-checked (all routes 200, pdx1 pin active, env fixed after ANTHROPIC_API_KEY was found empty), classification + Tier 2 verified running in production, /api/env-check deleted |
+| Personal Config Import — schema + seed (migrations 004/005) | ✅ Applied + REST-verified. `personal_settings` (protected windows, override_rule, notification_rule, quiet hours) seeded with Dave's real data; `business_settings` seeded for all 4 businesses (True Home Acquisitions, TC Dental Lab, 3D Scan, Backtesting — latter two newly created as `personal_project`); `delegations.stage` column added, unused so far. Committed `6958c12` (schema/seed/types only — PROJECT_STATE excluded from that commit), pushed via `git subtree push --prefix=levr origin main` → GitHub `main` confirmed at `42bd0ec` (verified via GitHub API, not just push exit code). **Vercel auto-deploy status: unconfirmed** — `levr-six.vercel.app` isn't a project under the Vercel scope this machine's CLI is authenticated to (`true-home-acquisitions`); no API access to check the build fired. Low-risk either way — this push is Supabase migration SQL (already applied directly, not via Vercel) + additive `lib/types.ts` types nothing yet imports, so a stale deploy has no functional impact. **Not yet wired to app logic** — classifier/notify.ts/Board UI changes are HANDOFF tasks 3–5, not started. Onboarding UX (task 6) stays blocked on those per the handoff. |
 
 ## What was verified live (2026-08-25, real DB + real Haiku calls, test data cleaned up after)
 
