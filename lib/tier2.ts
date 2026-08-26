@@ -320,3 +320,49 @@ function unwrap<T>(result: { data: T[] | null; error: { message: string } | null
   if (result.error) throw new Error(result.error.message);
   return result.data ?? [];
 }
+
+// HANDOFF-personal-config-import.md task 3: Sonnet, not Haiku, owns "is this
+// genuinely urgent enough to interrupt one of Dave's protected windows" — a
+// judgment call against his override_rule, not the fast structured-output
+// job Haiku is scoped to (levr-requirements.md § Classification backend).
+export interface UrgencyAssessment {
+  urgent: boolean;
+  reason: string;
+}
+
+export async function assessProtectedWindowUrgency(
+  taskText: string,
+  windowLabel: string,
+  overrideRule: string,
+): Promise<UrgencyAssessment> {
+  const client = new Anthropic();
+  const prompt =
+    "Dave is currently inside a protected personal window: " + JSON.stringify(windowLabel) + ".\n" +
+    "His rule for when business is allowed to interrupt this time: " +
+    JSON.stringify(overrideRule) +
+    "\n\nA message is about to go out because of this task: " + JSON.stringify(taskText) +
+    "\n\nIs this genuinely time-sensitive enough to send right now, per his rule? Default to " +
+    "no unless it clearly qualifies (a real deadline or deal at risk) — when in doubt, hold.\n\n" +
+    'Reply with ONLY raw JSON, no markdown fences: {"urgent": true|false, "reason": "one short sentence"}';
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 500,
+    system: PERSONA,
+    messages: [{ role: "user", content: prompt }],
+  });
+  if (response.stop_reason === "max_tokens") {
+    throw new Error("urgency check truncated at max_tokens");
+  }
+  const raw = response.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .replace(/```json|```/g, "")
+    .trim();
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  return {
+    urgent: parsed.urgent === true,
+    reason: typeof parsed.reason === "string" ? parsed.reason.trim() : "",
+  };
+}

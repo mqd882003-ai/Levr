@@ -6,6 +6,7 @@ export type EntrySource = "voice" | "text";
 export type Outcome = "done" | "late" | "not_done";
 export type Verdict = "fully_trust" | "needs_coaching" | "pull_back";
 export type DelegationStage = "assigned" | "contacted" | "appointment_set" | "closed" | "lost";
+export type NotifyStatus = "sent" | "held" | "skipped" | "failed";
 // A4 closeout diagnosis chips; only not_ready / no_follow_through feed trust.
 export type Diagnosis =
   | "unclear_brief"
@@ -152,6 +153,8 @@ export interface Delegation {
   diagnosis: Diagnosis | null;
   flag_shown: string | null;
   stage: DelegationStage | null;
+  notify_status: NotifyStatus | null;
+  notify_note: string | null;
 }
 
 export interface AppSettings {
