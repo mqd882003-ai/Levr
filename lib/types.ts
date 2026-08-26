@@ -5,6 +5,7 @@ export type EntryStatus = "open" | "done";
 export type EntrySource = "voice" | "text";
 export type Outcome = "done" | "late" | "not_done";
 export type Verdict = "fully_trust" | "needs_coaching" | "pull_back";
+export type DelegationStage = "assigned" | "contacted" | "appointment_set" | "closed" | "lost";
 // A4 closeout diagnosis chips; only not_ready / no_follow_through feed trust.
 export type Diagnosis =
   | "unclear_brief"
@@ -23,6 +24,48 @@ export interface Category {
 export interface Business {
   id: string;
   name: string;
+  created_at: string;
+}
+
+export type ProjectType = "delegatable" | "personal_project";
+
+export interface ProtectedWindow {
+  label: string;
+  start: string | null; // "HH:mm", null when the window has no fixed clock time
+  end: string | null;
+  frequency: string; // e.g. "daily", "Sundays", "4-5x/week"
+  silent: boolean; // true = hold notifications during this window
+  type?: "protected" | "reminder"; // reminder = prompt Dave, not a hold-notifications window
+  non_negotiable?: boolean;
+  note?: string;
+}
+
+export interface QuietHoursException {
+  label: string;
+  start: string | null;
+  end: string | null;
+}
+
+export interface PersonalSettings {
+  id: true;
+  protected_windows: ProtectedWindow[];
+  override_rule: string;
+  notification_rule: string;
+  notification_quiet_hours: {
+    default: { start: string; end: string } | null;
+    exceptions: QuietHoursException[];
+  };
+}
+
+export interface BusinessSettings {
+  id: string;
+  business_id: string;
+  project_type: ProjectType;
+  vision_goal: string;
+  current_friction: string;
+  priority_fixes: string[];
+  role_breakdown: string;
+  freeform_notes: string;
   created_at: string;
 }
 
@@ -108,6 +151,7 @@ export interface Delegation {
   confirm_first: boolean;
   diagnosis: Diagnosis | null;
   flag_shown: string | null;
+  stage: DelegationStage | null;
 }
 
 export interface AppSettings {
