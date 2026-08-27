@@ -3,8 +3,11 @@ import type { Business, Category, Delegation, Person, Project, ProjectType } fro
 
 // Per docs/levr-requirements.md § Classification backend: short structured-output
 // task, pinned to Haiku 4.5. Do not upgrade without a concrete accuracy reason.
-const MODEL = "claude-haiku-4-5-20251001";
-const MAX_CHUNKS = 5;
+// CLASSIFY_MODEL_OVERRIDE exists ONLY for the Haiku-vs-Sonnet segmentation test
+// Dave asked for — set it in .env.local to compare, then unset it. It must
+// never be relied on in production; the pin above is still the real default.
+const MODEL = process.env.CLASSIFY_MODEL_OVERRIDE || "claude-haiku-4-5-20251001";
+const MAX_CHUNKS = 25;
 
 export interface ClassifyContext {
   businesses: Business[];
@@ -63,14 +66,23 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     "\nTeam (with capability notes and recent delegation verdicts): " + JSON.stringify(team) +
     "\nTask categories: " + JSON.stringify(ctx.categories.map((c) => c.name)) +
     "\n\nCaptured entry: " + JSON.stringify(text) +
-    "\n\nFirst, decide whether this is genuinely ONE continuous thought, or whether it narrates " +
-    "separate concerns — different business, different task, unrelated purpose. Being long is " +
-    "NOT by itself a reason to split. Most captures are a single chunk; only split when the " +
-    "founder is clearly moving between distinct concerns in the same breath.\n\n" +
-    "Then, for EACH chunk, decide:\n" +
+    "\n\nStep 1 — enumerate concerns. A capture may contain any number of distinct concerns, " +
+    "from one to a dozen. A separate concern is marked by a change in business, person, " +
+    "deliverable, or purpose — not by length; a long capture can still be one concern, and a " +
+    "short one can hold three. List each concern you find as a short label in the `concerns` " +
+    "array, in the order it was spoken, before doing anything else.\n\n" +
+    "Step 2 — for EACH concern from Step 1, produce one object in `chunks`, in the same order, " +
+    "deciding:\n" +
     '- "text": the full original text of just this chunk, verbatim, no length limit and never ' +
     "shortened — the record of what was actually said.\n" +
-    '- "business": which business this belongs to — exactly one name from the Businesses list, or null if unclear.\n' +
+    '- "business": exactly one name from the Businesses list, based ONLY on (a) THIS chunk\'s own ' +
+    "text naming or clearly implying it, or (b) a team member explicitly named in THIS chunk " +
+    "whose business affiliation is known from the Team list above. Never infer from nearby " +
+    "chunks or the capture's overall topic — judge this chunk in isolation. Null if neither (a) " +
+    "nor (b) applies. It is better to return null than to guess.\n" +
+    '- "business_evidence": the short literal quote from THIS chunk\'s own text that justifies the ' +
+    '"business" value under case (a), OR the team member\'s name that justifies it under case (b). ' +
+    'Null whenever "business" is null.\n' +
     '- "project": an existing project name it belongs to (fuzzy match), or a short NEW 2-4 word project name if it clearly starts one, or null.\n' +
     '- "is_leverage": true if this is founder-only work (strategy, judgment, key relationships, pricing, hiring); false if operational/repeatable work someone else could do; ' +
     "ALWAYS true when the business's project_type is personal_project; null only if genuinely impossible to tell.\n" +
@@ -84,22 +96,84 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     'Friday"), verbatim, or null. Never infer urgency that wasn\'t stated.\n' +
     '- "stated_reason": a short quote if a reason or motive was explicitly given in this chunk, or ' +
     "null. Never infer a motive that wasn't said.\n\n" +
-    "Reply with ONLY a raw JSON array, no markdown fences, one object per chunk — a single-chunk " +
-    'capture is still an array of length 1: [{"text":"...","business":...,"project":...,' +
-    '"is_leverage":...,"summary":"...","suggested_owner_id":...,"category":...,' +
-    '"mentioned_people":[...],"explicit_deadline":...,"stated_reason":...}]'
+    "Call the classify_capture tool with your concerns list and chunks array. A single-concern " +
+    "capture is still valid — concerns and chunks will just each have length 1."
   );
 }
+
+// Forces structured output instead of hoping Haiku's free-text reply happens to
+// be valid JSON (item 4 of the segmentation fix: prompt-only JSON is a coin
+// flip). `concerns` is listed before `chunks` in the schema so the model
+// enumerates concerns as a distinct reasoning step before filling `chunks`,
+// which is what actually unblocks segmentation (item 2) — the neutral framing
+// in the prompt text alone wasn't enough on its own in earlier testing.
+const CLASSIFY_TOOL = {
+  name: "classify_capture",
+  description:
+    "Segment a raw capture into its distinct concerns, then classify each one into structured fields.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      concerns: {
+        type: "array",
+        description:
+          "Short one-line labels, one per distinct concern found in the capture, in the order spoken. Length only, not a reason to split further.",
+        items: { type: "string" },
+      },
+      chunks: {
+        type: "array",
+        description: "One object per entry in `concerns`, same order, same length.",
+        items: {
+          type: "object",
+          properties: {
+            text: { type: "string" },
+            business: { type: ["string", "null"] },
+            business_evidence: { type: ["string", "null"] },
+            project: { type: ["string", "null"] },
+            is_leverage: { type: ["boolean", "null"] },
+            summary: { type: "string" },
+            suggested_owner_id: { type: ["string", "null"] },
+            category: { type: ["string", "null"] },
+            mentioned_people: { type: "array", items: { type: "string" } },
+            explicit_deadline: { type: ["string", "null"] },
+            stated_reason: { type: ["string", "null"] },
+          },
+          required: ["text", "summary"],
+        },
+      },
+    },
+    required: ["concerns", "chunks"],
+  },
+};
 
 function parseChunk(value: unknown, ctx: ClassifyContext, fallbackText: string): Chunk | null {
   if (typeof value !== "object" || value === null) return null;
   const c = value as Record<string, unknown>;
 
   const text = typeof c.text === "string" && c.text.trim() ? c.text.trim() : fallbackText;
-  const business =
+  const businessClaim =
     typeof c.business === "string" && ctx.businesses.some((b) => b.name === c.business)
       ? (c.business as string)
       : null;
+  const businessClaimId = businessClaim
+    ? (ctx.businesses.find((b) => b.name === businessClaim)?.id ?? null)
+    : null;
+  const businessEvidenceRaw =
+    typeof c.business_evidence === "string" ? c.business_evidence.trim() : "";
+  // Don't trust a business claim on the model's say-so — it has been observed
+  // both omitting evidence and inventing plausible-sounding evidence
+  // ("postcard context", a bare "that") that doesn't actually appear in the
+  // chunk or name a real team member. Verify the evidence, don't just check
+  // it's present.
+  const businessEvidenceValid =
+    businessEvidenceRaw.length > 0 &&
+    (text.toLowerCase().includes(businessEvidenceRaw.toLowerCase()) ||
+      ctx.people.some(
+        (p) =>
+          p.business_id === businessClaimId &&
+          p.name.toLowerCase() === businessEvidenceRaw.toLowerCase(),
+      ));
+  const business = businessClaim && businessEvidenceValid ? businessClaim : null;
   const businessId = business ? (ctx.businesses.find((b) => b.name === business)?.id ?? null) : null;
   const isPersonalProject = businessId
     ? ctx.businessProjectType[businessId] === "personal_project"
@@ -160,21 +234,48 @@ export async function classifyCapture(text: string, ctx: ClassifyContext): Promi
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 4096, // an array of chunks, each echoing its own text verbatim
+    tools: [CLASSIFY_TOOL],
+    tool_choice: { type: "tool", name: "classify_capture" },
     messages: [{ role: "user", content: buildPrompt(text, ctx) }],
   });
+
+  // Item 1 of the segmentation-fix plan: log ground truth before any parsing
+  // touches it, so a bad split is debuggable from what the model actually
+  // said instead of inferred from the saved rows. TEMPORARY — strip or gate
+  // behind a debug flag once segmentation is confirmed reliable; this will
+  // otherwise log full capture text (personal data) to server logs forever.
+  console.log("[classify] model=%s raw_response=%s", MODEL, JSON.stringify(response));
+
   if (response.stop_reason === "max_tokens") {
     throw new Error("classifier output truncated at max_tokens");
   }
 
-  const raw = response.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
-    .replace(/```json|```/g, "")
-    .trim();
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "classify_capture",
+  );
+  if (!toolUse) {
+    throw new Error(
+      "model did not call classify_capture (stop_reason=" + response.stop_reason + ")",
+    );
+  }
 
-  const parsed: unknown = JSON.parse(raw);
-  const rawChunks = Array.isArray(parsed) ? parsed : [parsed]; // tolerate a bare object too
+  const input = toolUse.input as { concerns?: unknown; chunks?: unknown };
+  const concerns = Array.isArray(input.concerns) ? input.concerns : [];
+  const rawChunks = Array.isArray(input.chunks) ? input.chunks : [];
+
+  // Make truncation visible the moment it happens, not discovered later by
+  // counting board entries against what the founder actually said.
+  if (concerns.length > MAX_CHUNKS) {
+    const dropped = concerns.slice(MAX_CHUNKS);
+    console.warn(
+      "[classify] TRUNCATED: model returned %d concerns but MAX_CHUNKS=%d — dropping %d: %s",
+      concerns.length,
+      MAX_CHUNKS,
+      dropped.length,
+      JSON.stringify(dropped),
+    );
+  }
+
   const chunks = rawChunks
     .map((c) => parseChunk(c, ctx, text))
     .filter((c): c is Chunk => c !== null)
