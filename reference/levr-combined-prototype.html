@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Levr — combined prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F5F0; --card:#FFFFFF; --card-2:#F1EEE6; --line:#E3DFD4;
+    --text:#1C1D20; --muted:#6B6F76; --dim:#8F949C;
+    --signal:#C9891A; --signal-tint:#FBF0DA; --signal-text:#8A5F10;
+    --noise:#7C8591; --noise-tint:#EDEFF1;
+    --good:#2E9A5C; --good-tint:#E4F5EA; --bad:#D8483F; --bad-tint:#FBE9E7;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; display:flex; justify-content:center;}
+  .device{width:100%; max-width:430px; min-height:100vh; background:var(--bg); position:relative; overflow-x:hidden;}
+  .screen{display:none; min-height:100vh; padding-bottom:110px;}
+  .screen.active{display:block;}
+
+  .topbar{padding:26px 24px 16px; display:flex; align-items:center; justify-content:space-between;}
+  .topbar h1{font-family:'Space Grotesk',sans-serif; font-size:24px; font-weight:600;}
+  .open-count{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--dim); background:var(--card-2); border:1px solid var(--line); border-radius:100px; padding:5px 11px;}
+
+  #screen-home{display:none; justify-content:center; flex-direction:column; padding:36px 28px 110px; min-height:100vh;}
+  #screen-home.active{display:flex;}
+  .greeting-eyebrow{font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.1em; color:var(--dim); text-transform:uppercase; margin-bottom:12px;}
+  .greeting-eyebrow .dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--signal); margin-right:8px;}
+  .greeting-title{font-family:'Space Grotesk',sans-serif; font-size:28px; font-weight:600; margin-bottom:10px;}
+  .greeting-sub{font-size:15.5px; color:var(--muted); margin-bottom:30px; line-height:1.55;}
+  .capture-box{background:var(--card); border:1px solid var(--line); border-radius:20px; padding:18px;}
+  .capture-box textarea{width:100%; border:none; outline:none; resize:none; font-family:'Inter',sans-serif; font-size:16px; min-height:52px; background:none;}
+  .capture-box textarea::placeholder{color:var(--dim);}
+
+  .section-label{font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); margin:20px 24px 10px; display:flex; align-items:center; gap:8px;}
+  .section-label .swatch{width:8px; height:8px; border-radius:3px;}
+  .swatch.signal{background:var(--signal);} .swatch.noise{background:var(--noise);}
+
+  .row{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:0 24px 8px; display:flex; align-items:center; gap:12px;}
+  .row-title{font-size:14.5px; line-height:1.4;}
+  .row-meta{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--dim); margin-top:4px;}
+  .steps-tag{display:inline-block; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--dim); background:var(--card-2); border:1px solid var(--line); border-radius:6px; padding:2px 7px; margin-top:6px;}
+
+  .assign-pill{
+    display:flex; align-items:center; gap:6px; flex-shrink:0; background:var(--signal-tint); border:1px solid var(--signal);
+    color:var(--signal-text); font-size:12px; font-weight:600; padding:7px 11px 7px 9px; border-radius:100px; cursor:pointer; white-space:nowrap;
+  }
+  .assign-pill svg{width:12px; height:12px;}
+  .owner-chip{display:flex; align-items:center; gap:7px; flex-shrink:0; cursor:pointer;}
+  .owner-avatar{
+    width:30px; height:30px; border-radius:50%; background:var(--card-2); border:1.5px solid var(--line);
+    font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600; display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .owner-avatar::after{content:''; position:absolute; bottom:-1px; right:-1px; width:9px; height:9px; border-radius:50%; background:var(--good); border:2px solid var(--card);}
+
+  .board-actions{position:fixed; bottom:96px; left:0; right:0; display:flex; justify-content:center; z-index:15;}
+  .board-actions-inner{width:100%; max-width:430px; padding:0 24px; display:flex; align-items:center; gap:10px;}
+  .command-box{flex:1; background:#fff; border:1px solid var(--line); border-radius:100px; padding:12px 16px; display:flex; align-items:center; gap:9px; box-shadow:0 6px 20px rgba(28,29,32,.10); cursor:text;}
+  .command-box svg.spark{width:15px; height:15px; color:var(--signal); flex-shrink:0;}
+  .command-box .placeholder{color:var(--dim); font-size:13.5px;}
+  .add-fab{width:50px; height:50px; border-radius:50%; background:var(--text); color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 6px 16px rgba(28,29,32,.22); cursor:pointer;}
+  .add-fab svg{width:20px; height:20px;}
+
+  .day-nav{display:flex; align-items:center; gap:14px;}
+  .day-arrow{width:34px; height:34px; border-radius:50%; background:var(--card); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;}
+  .day-arrow svg{width:16px; height:16px;}
+  .view-toggle{display:flex; gap:6px; background:var(--card-2); padding:4px; border-radius:100px; border:1px solid var(--line); width:fit-content; margin:0 24px 18px;}
+  .toggle-pill{font-family:'JetBrains Mono',monospace; font-size:12px; padding:8px 18px; border-radius:100px; color:var(--muted); cursor:pointer;}
+  .toggle-pill.active{background:var(--text); color:#fff; font-weight:500;}
+  .week-view{padding:0 24px; display:flex; flex-direction:column; gap:20px;}
+  .week-day-section{display:flex; flex-direction:column; gap:8px;}
+  .week-day-header{display:flex; align-items:baseline; gap:8px; padding:0 2px;}
+  .week-day-header .dow{font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600;}
+  .week-day-header .date{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--dim);}
+  .week-day-header.today .dow{color:var(--signal-text);}
+  .week-day-header .count{margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--dim);}
+  .mini-block{display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:11px; border:1px solid var(--line); font-size:13.5px;}
+  .mini-block.protected{background:var(--noise-tint);}
+  .mini-block.deadline{background:var(--signal-tint); border-color:var(--signal); border-width:1.2px;}
+  .mini-block .mini-time{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--dim); flex-shrink:0; width:44px;}
+  .mini-block.deadline .mini-time{color:var(--signal-text); font-weight:500;}
+  .mini-block .mini-label{flex:1; line-height:1.35;}
+  .week-empty{font-size:12.5px; color:var(--dim); font-style:italic; padding:2px 4px;}
+
+  .person-card{display:flex; align-items:center; gap:14px; padding:16px; background:var(--card); border:1px solid var(--line); border-radius:16px; margin:0 24px 10px;}
+  .person-avatar{width:44px; height:44px; border-radius:50%; background:var(--card-2); border:1px solid var(--line); font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600; display:flex; align-items:center; justify-content:center;}
+  .person-name{font-size:15.5px; font-weight:600;}
+  .person-role{font-size:12.5px; color:var(--muted);}
+  .settings-row{display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border:1px solid var(--line); background:var(--card); border-radius:12px; margin:0 24px 8px; font-size:14.5px;}
+
+  .popover-anchor{position:relative;}
+  .popover{position:absolute; top:calc(100% + 8px); right:0; z-index:10; background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:0 8px 24px rgba(28,29,32,.12); width:230px; display:none;}
+  .popover.open{display:block;}
+  .popover-label{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--dim); text-transform:uppercase; margin-bottom:10px;}
+  .popover-chips{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;}
+  .popover-chip{display:flex; align-items:center; gap:5px; background:var(--card-2); border:1px solid var(--line); border-radius:100px; padding:6px 10px 6px 6px; font-size:12px; cursor:pointer;}
+  .popover-chip .mini-avatar{width:17px; height:17px; border-radius:50%; background:#fff; border:1px solid var(--line); font-size:8.5px; display:flex; align-items:center; justify-content:center; font-weight:600;}
+  .popover-input-row{display:flex; gap:6px;}
+  .popover-input-row input{flex:1; background:var(--card-2); border:1px solid var(--line); border-radius:9px; padding:8px 10px; font-size:12.5px; outline:none;}
+  .popover-input-row button{background:var(--text); color:#fff; border:none; border-radius:9px; padding:0 12px; font-size:12px; font-weight:600; cursor:pointer;}
+
+  .command-expanded{position:fixed; bottom:96px; left:0; right:0; display:none; justify-content:center; z-index:20;}
+  .command-expanded.open{display:flex;}
+  .command-expanded-inner{width:100%; max-width:430px; margin:0 24px; background:#fff; border:1px solid var(--line); border-radius:20px; padding:16px; box-shadow:0 10px 30px rgba(28,29,32,.16);}
+  .command-expanded textarea{width:100%; border:none; outline:none; resize:none; font-size:14.5px; min-height:40px;}
+  .command-expanded .row2{display:flex; align-items:center; justify-content:space-between; margin-top:8px;}
+  .command-expanded .hint{font-size:11px; color:var(--dim); line-height:1.4; max-width:250px;}
+  .command-expanded .send{background:var(--text); color:#fff; border:none; border-radius:100px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer;}
+
+  nav{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:430px; background:rgba(247,245,240,.94); backdrop-filter:blur(12px); border-top:1px solid var(--line); display:flex; justify-content:space-around; padding:12px 8px calc(12px + env(safe-area-inset-bottom)); z-index:25;}
+  .nav-item{display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--dim); font-family:'JetBrains Mono',monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; cursor:pointer;}
+  .nav-item.active{color:var(--signal-text);}
+  .nav-item svg{width:19px; height:19px;}
+</style>
+</head>
+<body>
+<div class="device">
+
+  <div class="screen active" id="screen-home">
+    <div class="greeting-eyebrow"><span class="dot"></span>THURSDAY · AUG 27</div>
+    <div class="greeting-title">Morning, David.</div>
+    <div class="greeting-sub">Coffee's on. What's on your mind before it gets buried?</div>
+    <div class="capture-box"><textarea placeholder="Tell me what's going on..."></textarea></div>
+  </div>
+
+  <div class="screen" id="screen-board">
+    <div class="topbar"><h1>Board</h1><div class="open-count">6 open</div></div>
+    <div class="section-label"><span class="swatch noise"></span>Delegated</div>
+
+    <div class="row">
+      <div style="flex:1;">
+        <div class="row-title">Board app doesn't retain scroll position after refresh</div>
+        <div class="row-meta">TC Dental Lab · unassigned</div>
+        <span class="steps-tag">0/4 steps</span>
+      </div>
+      <div class="popover-anchor">
+        <div class="assign-pill" onclick="togglePop('pop1')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>
+          Delegate
+        </div>
+        <div class="popover" id="pop1">
+          <div class="popover-label">Hand off to</div>
+          <div class="popover-chips">
+            <div class="popover-chip"><span class="mini-avatar">D</span>Danny</div>
+            <div class="popover-chip"><span class="mini-avatar">Y</span>Yana</div>
+            <div class="popover-chip"><span class="mini-avatar">A</span>Andrie</div>
+          </div>
+          <div class="popover-input-row"><input placeholder="Someone else?"><button>Add</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="flex:1;">
+        <div class="row-title">Whitening kits running low; recurring reorder needed</div>
+        <div class="row-meta">TC Dental Lab</div>
+        <span class="steps-tag">0/3 steps</span>
+      </div>
+      <div class="popover-anchor">
+        <div class="owner-chip" onclick="togglePop('pop2')"><div class="owner-avatar">Y</div></div>
+        <div class="popover" id="pop2">
+          <div class="popover-label">Reassign</div>
+          <div class="popover-chips">
+            <div class="popover-chip"><span class="mini-avatar">D</span>Danny</div>
+            <div class="popover-chip"><span class="mini-avatar">A</span>Andrie</div>
+          </div>
+          <div class="popover-input-row"><input placeholder="Someone else?"><button>Add</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="flex:1;">
+        <div class="row-title">Danny calls Smith family once more before dropping lead</div>
+        <div class="row-meta">True Home Acquisitions</div>
+        <span class="steps-tag">0/4 steps</span>
+      </div>
+      <div class="popover-anchor">
+        <div class="owner-chip" onclick="togglePop('pop3')"><div class="owner-avatar">D</div></div>
+        <div class="popover" id="pop3">
+          <div class="popover-label">Reassign</div>
+          <div class="popover-chips">
+            <div class="popover-chip"><span class="mini-avatar">Y</span>Yana</div>
+            <div class="popover-chip"><span class="mini-avatar">A</span>Andrie</div>
+          </div>
+          <div class="popover-input-row"><input placeholder="Someone else?"><button>Add</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="board-actions" id="board-actions">
+      <div class="board-actions-inner">
+        <div class="command-box" onclick="document.getElementById('cmd-expanded').classList.add('open'); document.getElementById('board-actions').style.display='none';">
+          <svg class="spark" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/></svg>
+          <span class="placeholder">Tell me what to do...</span>
+        </div>
+        <div class="add-fab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
+      </div>
+    </div>
+    <div class="command-expanded" id="cmd-expanded">
+      <div class="command-expanded-inner">
+        <textarea placeholder="give the scroll bug to danny"></textarea>
+        <div class="row2">
+          <div class="hint">Talks about existing tasks only — new ideas still go through Home's mic or the + here.</div>
+          <button class="send" onclick="document.getElementById('cmd-expanded').classList.remove('open'); document.getElementById('board-actions').style.display='flex';">Go</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screen-calendar">
+    <div class="topbar">
+      <h1>Calendar</h1>
+      <div class="day-nav">
+        <div class="day-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></div>
+        <div class="day-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></div>
+      </div>
+    </div>
+    <div class="view-toggle"><div class="toggle-pill">Day</div><div class="toggle-pill active">Week</div></div>
+    <div class="week-view">
+      <div class="week-day-section">
+        <div class="week-day-header"><span class="dow">Sunday</span><span class="date">Aug 23</span></div>
+        <div class="mini-block protected"><span class="mini-time">Church</span><span class="mini-label">Church — non-negotiable</span></div>
+      </div>
+      <div class="week-day-section">
+        <div class="week-day-header"><span class="dow">Monday</span><span class="date">Aug 24</span><span class="count">2 deadlines</span></div>
+        <div class="mini-block deadline"><span class="mini-time">11 AM</span><span class="mini-label">Follow up with Seattle lab on lease terms</span></div>
+        <div class="mini-block deadline"><span class="mini-time">3 PM</span><span class="mini-label">Approve custom shade order before vendor cutoff</span></div>
+        <div class="mini-block protected"><span class="mini-time">4–5:30</span><span class="mini-label">Gym</span></div>
+      </div>
+      <div class="week-day-section">
+        <div class="week-day-header"><span class="dow">Tuesday</span><span class="date">Aug 25</span></div>
+        <div class="week-empty">Nothing but protected time today</div>
+      </div>
+      <div class="week-day-section">
+        <div class="week-day-header today"><span class="dow">Wednesday</span><span class="date">Aug 26 · Today</span><span class="count">2 deadlines</span></div>
+        <div class="mini-block deadline"><span class="mini-time">11 AM</span><span class="mini-label">Confirm Facebook ad budget with Danny</span></div>
+        <div class="mini-block deadline"><span class="mini-time">2 PM</span><span class="mini-label">Send Seattle lab staffing numbers</span></div>
+        <div class="mini-block protected"><span class="mini-time">4–5:30</span><span class="mini-label">Gym</span></div>
+      </div>
+      <div class="week-day-section">
+        <div class="week-day-header"><span class="dow">Thursday</span><span class="date">Aug 27</span></div>
+        <div class="week-empty">Nothing but protected time today</div>
+      </div>
+      <div class="week-day-section">
+        <div class="week-day-header"><span class="dow">Friday</span><span class="date">Aug 28</span><span class="count">1 deadline</span></div>
+        <div class="mini-block deadline"><span class="mini-time">10 AM</span><span class="mini-label">Danny — check appointment conversion from this week's ad leads</span></div>
+      </div>
+      <div class="week-day-section">
+        <div class="week-day-header"><span class="dow">Saturday</span><span class="date">Aug 29</span></div>
+        <div class="week-empty">Nothing scheduled</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screen-team">
+    <div class="topbar"><h1>Team</h1></div>
+    <div class="person-card"><div class="person-avatar">D</div><div><div class="person-name">Danny</div><div class="person-role">Realtor · True Home Acquisitions</div></div></div>
+    <div class="person-card"><div class="person-avatar">Y</div><div><div class="person-name">Yana</div><div class="person-role">Marketing · TC Dental Lab</div></div></div>
+    <div class="person-card"><div class="person-avatar">A</div><div><div class="person-name">Andrie</div><div class="person-role">TC Dental Lab</div></div></div>
+  </div>
+
+  <div class="screen" id="screen-settings">
+    <div class="topbar"><h1>Settings</h1></div>
+    <div class="settings-row"><span>Name</span><span style="color:var(--dim)">David</span></div>
+    <div class="settings-row"><span>Notifications</span><span style="color:var(--good)">On</span></div>
+    <div class="settings-row"><span>Businesses</span><span style="color:var(--dim)">4</span></div>
+  </div>
+
+  <nav>
+    <div class="nav-item" data-target="screen-home" onclick="showScreen(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>Home</div>
+    <div class="nav-item active" data-target="screen-board" onclick="showScreen(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Board</div>
+    <div class="nav-item" data-target="screen-calendar" onclick="showScreen(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Calendar</div>
+    <div class="nav-item" data-target="screen-team" onclick="showScreen(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Team</div>
+    <div class="nav-item" data-target="screen-settings" onclick="showScreen(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</div>
+  </nav>
+</div>
+<script>
+function showScreen(el){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(el.getAttribute('data-target')).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  el.classList.add('active');
+}
+function togglePop(id){
+  document.querySelectorAll('.popover').forEach(p=>{ if(p.id!==id) p.classList.remove('open'); });
+  document.getElementById(id).classList.toggle('open');
+}
+</script>
+</body>
+</html>

@@ -975,6 +975,184 @@ select:focus-visible {
   box-shadow: none;
 }
 
+/* ===== CALENDAR (week view v1 — reference/levr-combined-prototype.html) ===== */
+.day-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.day-arrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: var(--text);
+}
+.day-arrow svg {
+  width: 16px;
+  height: 16px;
+}
+.view-toggle {
+  display: flex;
+  gap: 6px;
+  background: var(--card-2);
+  padding: 4px;
+  border-radius: 100px;
+  border: 1px solid var(--line);
+  width: fit-content;
+  margin: 0 var(--px) 14px;
+}
+.toggle-pill {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 18px;
+  border-radius: 100px;
+  color: var(--muted);
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.toggle-pill.active {
+  background: var(--text);
+  color: #fff;
+  font-weight: 500;
+}
+.toggle-pill.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.toggle-pill.today-jump {
+  color: var(--signal-text);
+}
+.undated-strip {
+  margin: 0 var(--px) 18px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: var(--card-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.undated-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 2px;
+}
+.week-view {
+  padding: 0 var(--px);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.week-day-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.week-day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px;
+}
+.week-day-header .dow {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+}
+.week-day-header.today .dow {
+  color: var(--signal-text);
+}
+.week-day-header .date {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+.week-day-header .count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dim);
+}
+.mini-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  font-size: 13.5px;
+  background: var(--card);
+}
+.mini-block.protected {
+  background: var(--noise-tint);
+}
+.mini-block.deadline {
+  background: var(--signal-tint);
+  border-color: var(--signal);
+  border-width: 1.2px;
+}
+/* Windows whose real schedule the data can't pin down — visually distinct
+   from precise blocks, never dressed up as certain. */
+.mini-block.tentative {
+  background: none;
+  border-style: dashed;
+  opacity: 0.75;
+}
+.mini-block.undated {
+  background: var(--card);
+  border-style: dashed;
+}
+.mini-block .mini-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  flex-shrink: 0;
+  min-width: 44px;
+}
+.mini-block.deadline .mini-time {
+  color: var(--signal-text);
+  font-weight: 500;
+}
+.mini-block .mini-label {
+  flex: 1;
+  line-height: 1.35;
+}
+.mini-label .mini-biz,
+.mini-label .undated-raw {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  margin-top: 3px;
+}
+.floats-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-left: 7px;
+  vertical-align: 1px;
+}
+.week-empty {
+  font-size: 12.5px;
+  color: var(--dim);
+  font-style: italic;
+  padding: 2px 4px;
+}
+
 /* ===== TEAM ===== */
 .team {
   padding: 0 var(--px);

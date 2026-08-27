@@ -112,6 +112,8 @@ export interface Entry {
   split_from_entry_id: string | null;
   mentioned_people: string[];
   explicit_deadline: string | null;
+  deadline_at: string | null; // parsed from explicit_deadline at save time (010) — null = undated
+  deadline_all_day: boolean; // date known but no clock time stated
   stated_reason: string | null;
 }
 

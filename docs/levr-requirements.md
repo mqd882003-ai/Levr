@@ -18,6 +18,8 @@ The end user is busy and doesn't want to think about the tool. Every screen must
 
 ## Screens — functional requirements
 
+> **Nav change (2026-08-27, Dave-approved):** the bottom nav is now FIVE items — Home / Board / **Calendar** / Team / Settings. Calendar (week view of parsed entry deadlines + protected windows) was added deliberately, not incidentally; do not "restore" the original 4-item nav without Dave's say-so.
+
 ### 1. Home (default screen on open)
 - Personalized greeting keyed to time of day ("Morning, David." / "Evening, David." / late-night variant), plus one short, warm, contextual line — NOT generic ("Coffee's on. What's on your mind before it gets buried?" style). Rotate/vary this line; don't hardcode one string forever.
 - One capture box: free text input + mic button for voice-to-text.

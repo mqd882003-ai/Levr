@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { classifyCapture, type ClassifyContext, type Chunk } from "@/lib/classify";
+import { parseDeadline } from "@/lib/deadline";
 import { runTier2 } from "@/lib/tier2";
 import { supabaseServer, supabaseConfigured } from "@/lib/supabase/server";
 import type {
@@ -117,10 +118,15 @@ export async function POST(request: Request) {
     let anchorBusinessName: string | null = null;
     let anchorProjectName: string | null = null;
 
+    // Anchor for deadline parsing: the capture moment, shared by every chunk
+    // of this capture — "tomorrow" in a sibling means tomorrow-from-capture.
+    const captureAnchor = new Date(entry.captured_at);
+
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       const businessId = businesses.find((b) => b.name === chunk.business)?.id ?? null;
       const projectId = await resolveProjectId(chunk, businessId);
+      const parsedDeadline = parseDeadline(chunk.explicit_deadline, captureAnchor);
       const fields = {
         text: chunk.text,
         summary: chunk.summary,
@@ -131,6 +137,8 @@ export async function POST(request: Request) {
         category: chunk.category,
         mentioned_people: chunk.mentioned_people,
         explicit_deadline: chunk.explicit_deadline,
+        deadline_at: parsedDeadline.deadline_at,
+        deadline_all_day: parsedDeadline.deadline_all_day,
         stated_reason: chunk.stated_reason,
       };
 
