@@ -1,14 +1,30 @@
 import { NextResponse, after } from "next/server";
-import { classifyEntry, type ClassifyContext } from "@/lib/classify";
+import { classifyCapture, type ClassifyContext, type Chunk } from "@/lib/classify";
 import { runTier2 } from "@/lib/tier2";
 import { supabaseServer, supabaseConfigured } from "@/lib/supabase/server";
-import type { Business, Category, Delegation, Entry, Person, Project } from "@/lib/types";
+import type {
+  Business,
+  BusinessSettings,
+  Category,
+  Delegation,
+  Entry,
+  Person,
+  Project,
+  ProjectType,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 
 // Capture + classify. The entry is inserted FIRST, then classified — a
 // classification failure must never lose the captured thought; the entry just
 // lands unclassified (is_leverage null → Board's "Needs a look").
+//
+// Tier 1 (Haiku) may split the capture into multiple logical chunks (genuinely
+// different businesses/tasks, not just a long single thought). The
+// first-inserted entry is always the anchor (split_from_entry_id stays null);
+// any further chunks are inserted as siblings pointing split_from_entry_id at
+// the anchor. A single-chunk capture — the common case — behaves exactly as
+// before: one entry, updated in place.
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -41,75 +57,107 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
-  const entry = inserted.data;
+  const entry = inserted.data; // the anchor if Tier 1 returns more than one chunk
 
   try {
-    const [businesses, projects, people, delegations, categories] = await Promise.all([
-      db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
-      db.from("projects").select("*").then(unwrap<Project>),
-      db.from("people").select("*").then(unwrap<Person>),
-      db
-        .from("delegations")
-        .select("*")
-        .order("assigned_at", { ascending: false })
-        .limit(100)
-        .then(unwrap<Delegation>),
-      db.from("categories").select("*").eq("status", "active").then(unwrap<Category>),
-    ]);
-    const ctx: ClassifyContext = { businesses, projects, people, delegations, categories };
+    const [businesses, projects, people, delegations, categories, businessSettingsRes] =
+      await Promise.all([
+        db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
+        db.from("projects").select("*").then(unwrap<Project>),
+        db.from("people").select("*").then(unwrap<Person>),
+        db
+          .from("delegations")
+          .select("*")
+          .order("assigned_at", { ascending: false })
+          .limit(100)
+          .then(unwrap<Delegation>),
+        db.from("categories").select("*").eq("status", "active").then(unwrap<Category>),
+        db.from("business_settings").select("business_id, project_type"),
+      ]);
+    const businessProjectType: Record<string, ProjectType> = {};
+    for (const bs of (businessSettingsRes.data ?? []) as Pick<
+      BusinessSettings,
+      "business_id" | "project_type"
+    >[]) {
+      businessProjectType[bs.business_id] = bs.project_type;
+    }
+    const ctx: ClassifyContext = { businesses, businessProjectType, projects, people, delegations, categories };
 
-    const result = await classifyEntry(entry.text, ctx);
+    const chunks = await classifyCapture(entry.text, ctx);
 
-    const businessId =
-      businesses.find((b) => b.name === result.business)?.id ?? null;
-
-    let projectId: string | null = null;
-    let projectName: string | null = null;
-    if (result.project) {
-      const existing = projects.find(
-        (p) => p.name.toLowerCase() === result.project!.toLowerCase(),
+    // Resolve/create a project for a chunk. Tracks newly-created projects
+    // locally so two chunks in the same capture wanting the same new project
+    // name reuse it instead of creating a duplicate.
+    const knownProjects: Project[] = [...projects];
+    async function resolveProjectId(chunk: Chunk, businessId: string | null): Promise<string | null> {
+      if (!chunk.project) return null;
+      const existing = knownProjects.find(
+        (p) => p.name.toLowerCase() === chunk.project!.toLowerCase(),
       );
-      if (existing) {
-        projectId = existing.id;
-        projectName = existing.name;
+      if (existing) return existing.id;
+      const created = await db
+        .from("projects")
+        .insert({ name: chunk.project, business_id: businessId, created_from_entry_id: entry.id })
+        .select()
+        .single<Project>();
+      if (created.data) knownProjects.push(created.data);
+      return created.data?.id ?? null;
+    }
+
+    const createdIds: string[] = [];
+    let anchorEntry: Entry = entry;
+    let anchorBusinessName: string | null = null;
+    let anchorProjectName: string | null = null;
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const businessId = businesses.find((b) => b.name === chunk.business)?.id ?? null;
+      const projectId = await resolveProjectId(chunk, businessId);
+      const fields = {
+        text: chunk.text,
+        summary: chunk.summary,
+        business_id: businessId,
+        project_id: projectId,
+        is_leverage: chunk.is_leverage,
+        suggested_person_id: chunk.suggested_owner_id,
+        category: chunk.category,
+        mentioned_people: chunk.mentioned_people,
+        explicit_deadline: chunk.explicit_deadline,
+        stated_reason: chunk.stated_reason,
+      };
+
+      if (i === 0) {
+        const updated = await db.from("entries").update(fields).eq("id", entry.id).select().single<Entry>();
+        anchorEntry = updated.data ?? entry;
+        anchorBusinessName = businesses.find((b) => b.id === businessId)?.name ?? null;
+        anchorProjectName = chunk.project
+          ? (knownProjects.find((p) => p.id === projectId)?.name ?? chunk.project)
+          : null;
+        createdIds.push(entry.id);
       } else {
         const created = await db
-          .from("projects")
-          .insert({
-            name: result.project,
-            business_id: businessId,
-            created_from_entry_id: entry.id,
-          })
+          .from("entries")
+          .insert({ ...fields, source: entrySource, split_from_entry_id: entry.id })
           .select()
-          .single<Project>();
-        projectId = created.data?.id ?? null;
-        projectName = created.data?.name ?? result.project;
+          .single<Entry>();
+        if (created.data) createdIds.push(created.data.id);
       }
     }
 
-    const updated = await db
-      .from("entries")
-      .update({
-        summary: result.summary,
-        business_id: businessId,
-        project_id: projectId,
-        is_leverage: result.is_leverage,
-        suggested_person_id: result.suggested_owner_id,
-        category: result.category,
-      })
-      .eq("id", entry.id)
-      .select()
-      .single<Entry>();
-
-    // Phase 2 Tier 2: consultant-grade second pass, off the critical path.
-    after(() => runTier2(entry.id));
+    // Phase 2 Tier 2: consultant-grade second pass, per chunk, off the
+    // critical path. after() awaits whatever the callback returns, so this
+    // waits for every chunk's pass, not just the first.
+    after(() => Promise.all(createdIds.map((id) => runTier2(id))));
 
     return NextResponse.json({
-      entry: updated.data ?? entry,
+      entry: anchorEntry,
       classified: true,
       // Resolved names so the client can render the new row without a refetch.
-      business_name: businesses.find((b) => b.id === businessId)?.name ?? null,
-      project_name: projectName,
+      business_name: anchorBusinessName,
+      project_name: anchorProjectName,
+      // Present when Tier 1 split the capture — siblings appear on Board on
+      // next load; the client doesn't flash/toast them individually yet.
+      additionalChunks: createdIds.length - 1,
     });
   } catch (err) {
     // Entry is already saved — surface it unclassified rather than failing.

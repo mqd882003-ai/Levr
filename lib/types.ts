@@ -111,6 +111,8 @@ export interface Entry {
   parked_until: string | null;
   split_from_entry_id: string | null;
   mentioned_people: string[];
+  explicit_deadline: string | null;
+  stated_reason: string | null;
 }
 
 export interface ChecklistItem {
@@ -200,14 +202,4 @@ export interface TrustEvidence {
   verdict: Verdict | null;
   diagnosis: Diagnosis | null;
   expected_outcome: string | null;
-}
-
-// What the classifier returns (see lib/classify.ts).
-export interface Classification {
-  business: string | null;
-  project: string | null;
-  is_leverage: boolean | null;
-  summary: string;
-  suggested_owner_id: string | null;
-  category: string | null;
 }
