@@ -89,9 +89,12 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     '- "summary": this chunk compressed to one board-readable line, max 12 words.\n' +
     '- "suggested_owner_id": only when is_leverage is false — the id of the best team member, weighing role, capability notes, and past verdicts. Rule out anyone whose notes or history say pull-back on similar work. Otherwise null.\n' +
     '- "category": for delegate-able tasks, the single best fit from the Task categories list, or null if none fits (null for founder-only items).\n' +
-    '- "mentioned_people": names of people EXPLICITLY stated in this chunk who are not already in ' +
-    "the Team list above — max 5. Never infer or guess who a task might involve; only names " +
-    "actually said.\n" +
+    '- "mentioned_people": names of people EXPLICITLY stated in this chunk who could plausibly be ' +
+    "asked to do work — never a lead, customer, vendor, tenant, or other external party the task " +
+    "concerns (e.g. 'follow up with the Smith lead' names Smith as the SUBJECT of work, not a " +
+    "candidate to add to Team). Not already in the Team list above — max 5. Never infer or guess; " +
+    "only names actually said, and only when it's plausible they're someone Dave would delegate " +
+    "to.\n" +
     '- "explicit_deadline": a deadline literally stated in this chunk (e.g. "by 2pm", "before ' +
     'Friday"), verbatim, or null. Never infer urgency that wasn\'t stated.\n' +
     '- "stated_reason": a short quote if a reason or motive was explicitly given in this chunk, or ' +

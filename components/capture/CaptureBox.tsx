@@ -3,13 +3,48 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Entry } from "@/lib/types";
+import CaptureQuestions, { type AskableItem } from "@/components/capture/CaptureQuestions";
 
 const IDLE_STATUS = "Just talk or type. I'll sort out where it goes.";
+const MAX_QUESTIONS = 3;
 
 export interface CapturedExtras {
   businessName: string | null;
   projectName: string | null;
   classified: boolean;
+}
+
+interface CreatedEntrySummary {
+  id: string;
+  summary: string;
+  business_id: string | null;
+  mentioned_people: string[];
+}
+
+// Requirements §Interaction model rule-3 exception: up to MAX_QUESTIONS quick
+// questions right after classification, people first (cheaper, more valuable
+// to resolve), then unresolved business, oldest chunk first. Anything past
+// the cap keeps its unresolved state and reaches the needs-review path.
+function buildQuestionQueue(
+  created: CreatedEntrySummary[],
+  haveBusinesses: boolean,
+): AskableItem[] {
+  const people: AskableItem[] = [];
+  const seen = new Set<string>();
+  for (const e of created) {
+    for (const raw of e.mentioned_people ?? []) {
+      const name = raw.trim();
+      if (!name || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      people.push({ kind: "person", entryId: e.id, name, businessId: e.business_id });
+    }
+  }
+  const unresolved: AskableItem[] = haveBusinesses
+    ? created
+        .filter((e) => e.business_id === null)
+        .map((e) => ({ kind: "business", entryId: e.id, summary: e.summary }))
+    : [];
+  return [...people, ...unresolved].slice(0, MAX_QUESTIONS);
 }
 
 // Minimal typings for the Web Speech API (secondary voice path only — the
@@ -30,8 +65,12 @@ interface SpeechRecognitionLike {
 // it, submit navigates to Board with the highlight param (Home behavior).
 export default function CaptureBox({
   onCaptured,
+  businesses,
 }: {
   onCaptured?: (entry: Entry, extras: CapturedExtras) => void;
+  // Home passes the roster for the question queue's business chips; quick-add
+  // doesn't, and the queue never runs on that path anyway.
+  businesses?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -42,6 +81,8 @@ export default function CaptureBox({
   const [listening, setListening] = useState(false);
   const [micAvailable, setMicAvailable] = useState(false);
   const [status, setStatus] = useState(IDLE_STATUS);
+  const [questionQueue, setQuestionQueue] = useState<AskableItem[] | null>(null);
+  const pendingNavRef = useRef<string | null>(null);
 
   // Set up in-app speech recognition only where it actually works: not as an
   // installed PWA (iOS Safari standalone silently breaks it). It must fail
@@ -106,7 +147,7 @@ export default function CaptureBox({
   const submit = useCallback(async () => {
     const ta = taRef.current;
     const text = ta?.value.trim();
-    if (!ta || !text || sorting) return;
+    if (!ta || !text || sorting || questionQueue) return;
 
     const source = usedVoiceRef.current ? "voice" : "text";
     ta.value = "";
@@ -128,6 +169,7 @@ export default function CaptureBox({
         classified?: boolean;
         business_name?: string | null;
         project_name?: string | null;
+        createdEntries?: CreatedEntrySummary[];
         error?: string;
       };
       if (!res.ok || !data.entry) {
@@ -143,6 +185,20 @@ export default function CaptureBox({
         });
         return;
       }
+      // Requirements §Interaction model rule-3 exception: pause here for up
+      // to 3 quick questions before Board. The entries are already saved —
+      // closing the app mid-question loses nothing.
+      const queue = buildQuestionQueue(
+        data.createdEntries ?? [],
+        Boolean(businesses?.length),
+      );
+      if (queue.length) {
+        pendingNavRef.current = data.entry.id;
+        setSorting(false);
+        setStatus(IDLE_STATUS);
+        setQuestionQueue(queue);
+        return;
+      }
       router.push(`/board?new=${data.entry.id}`);
     } catch (err) {
       // Don't lose the thought — put it back in the field.
@@ -156,7 +212,7 @@ export default function CaptureBox({
           : "Couldn't sort that one. Your text is still here — try again.",
       );
     }
-  }, [router, sorting, onCaptured]);
+  }, [router, sorting, onCaptured, businesses, questionQueue]);
 
   return (
     <>
@@ -209,13 +265,26 @@ export default function CaptureBox({
           </button>
         </div>
       </div>
-      <div
-        className={`capture-status${sorting ? " sorting" : ""}`}
-        aria-live="polite"
-      >
-        {sorting && <span className="spin" />}
-        {status}
-      </div>
+      {questionQueue ? (
+        <CaptureQuestions
+          queue={questionQueue}
+          businesses={businesses ?? []}
+          onDone={() => {
+            const id = pendingNavRef.current;
+            setQuestionQueue(null);
+            pendingNavRef.current = null;
+            if (id) router.push(`/board?new=${id}`);
+          }}
+        />
+      ) : (
+        <div
+          className={`capture-status${sorting ? " sorting" : ""}`}
+          aria-live="polite"
+        >
+          {sorting && <span className="spin" />}
+          {status}
+        </div>
+      )}
     </>
   );
 }

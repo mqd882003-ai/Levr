@@ -105,6 +105,14 @@ export async function POST(request: Request) {
     }
 
     const createdIds: string[] = [];
+    // Additive: per-created-entry facts the Home question queue needs
+    // (unresolved business / new mentioned names). Board quick-add ignores it.
+    const createdEntries: Array<{
+      id: string;
+      summary: string;
+      business_id: string | null;
+      mentioned_people: string[];
+    }> = [];
     let anchorEntry: Entry = entry;
     let anchorBusinessName: string | null = null;
     let anchorProjectName: string | null = null;
@@ -134,13 +142,27 @@ export async function POST(request: Request) {
           ? (knownProjects.find((p) => p.id === projectId)?.name ?? chunk.project)
           : null;
         createdIds.push(entry.id);
+        createdEntries.push({
+          id: entry.id,
+          summary: chunk.summary,
+          business_id: businessId,
+          mentioned_people: chunk.mentioned_people,
+        });
       } else {
         const created = await db
           .from("entries")
           .insert({ ...fields, source: entrySource, split_from_entry_id: entry.id })
           .select()
           .single<Entry>();
-        if (created.data) createdIds.push(created.data.id);
+        if (created.data) {
+          createdIds.push(created.data.id);
+          createdEntries.push({
+            id: created.data.id,
+            summary: chunk.summary,
+            business_id: businessId,
+            mentioned_people: chunk.mentioned_people,
+          });
+        }
       }
     }
 
@@ -158,6 +180,9 @@ export async function POST(request: Request) {
       // Present when Tier 1 split the capture — siblings appear on Board on
       // next load; the client doesn't flash/toast them individually yet.
       additionalChunks: createdIds.length - 1,
+      // Additive (see requirements §Interaction model rule-3 exception):
+      // feeds Home's post-capture question queue. Quick-add ignores it.
+      createdEntries,
     });
   } catch (err) {
     // Entry is already saved — surface it unclassified rather than failing.

@@ -19,13 +19,30 @@ async function getUserName(): Promise<string> {
   }
 }
 
+// For the post-capture question queue's business chips (requirements
+// §Interaction model rule-3 exception). Empty list just disables business
+// questions — capture itself never depends on this.
+async function getBusinesses(): Promise<{ id: string; name: string }[]> {
+  if (!supabaseConfigured()) return [];
+  try {
+    const db = supabaseServer();
+    const { data } = await db
+      .from("businesses")
+      .select("id, name")
+      .order("created_at");
+    return data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export default async function HomePage() {
-  const name = await getUserName();
+  const [name, businesses] = await Promise.all([getUserName(), getBusinesses()]);
   return (
     <section className="screen screen-home" aria-label="Home">
       <div className="home-inner">
         <Greeting name={name} />
-        <CaptureBox />
+        <CaptureBox businesses={businesses} />
       </div>
     </section>
   );

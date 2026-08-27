@@ -526,6 +526,31 @@ async function removeMentionedName(entryId: string, name: string): Promise<void>
   await db.from("entries").update({ mentioned_people: remaining }).eq("id", entryId);
 }
 
+// Home question-queue answer (requirements §Interaction model rule-3
+// exception): fills in a business Tier 1 couldn't resolve. Deliberately slim —
+// no correction log (null → value is a fill-in, not an override of a guess),
+// and Tier 2's own changed-under-us guard already handles the race with the
+// async second pass.
+export async function setEntryBusiness(
+  entryId: string,
+  businessId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const db = supabaseServer();
+    const updated = await db
+      .from("entries")
+      .update({ business_id: businessId })
+      .eq("id", entryId)
+      .select("id")
+      .maybeSingle<{ id: string }>();
+    if (updated.error) throw new Error(updated.error.message);
+    if (!updated.data) return { ok: false, error: "Entry not found" };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Update failed" };
+  }
+}
+
 export async function addMentionedPerson(
   entryId: string,
   name: string,
