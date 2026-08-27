@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "regions": ["pdx1"],
   "crons": [
-    { "path": "/api/notify/flush", "schedule": "*/30 * * * *" }
+    { "path": "/api/notify/flush", "schedule": "0 16 * * *" }
   ]
 }
