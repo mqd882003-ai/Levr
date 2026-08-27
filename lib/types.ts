@@ -79,6 +79,7 @@ export interface Person {
   email: string | null;
   preferred_channel: Channel;
   capability_notes: string;
+  capacity_limit: number | null; // 011: max open delegations; null = no limit set
   created_at: string;
 }
 
@@ -193,6 +194,31 @@ export interface BoardEntry {
   category: string | null;
   parkedUntil: string | null;
   mentionedPeople: string[];
+}
+
+// 011: routing junction rows.
+export type RatingLevel = "not_ready" | "learning" | "capable" | "strong";
+export type RatingSource = "declared" | "earned";
+
+export interface PersonCategoryRating {
+  id: string;
+  person_id: string;
+  category_id: string;
+  level: RatingLevel;
+  source: RatingSource;
+  updated_at: string;
+}
+
+export interface RoutingRecommendationRow {
+  id: string;
+  entry_id: string | null;
+  recommended_person_id: string | null;
+  score: number | null;
+  reasons: Record<string, unknown> | null;
+  accepted: boolean | null; // null until a human acts: true = confirmed, false = overrode
+  overridden_to_person_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 // Slim resolved-history rows the assignment sheet uses for per-category trust.

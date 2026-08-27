@@ -16,7 +16,9 @@ export interface TrustRead {
   evidence: TrustEvidence[]; // the window rows behind the read (A3.4)
 }
 
-function isMiss(d: TrustEvidence): boolean {
+// Exported for lib/routing.ts, which turns the same window into a numeric
+// landed-ratio — one definition of "miss", not two.
+export function isMiss(d: TrustEvidence): boolean {
   if (d.diagnosis) return d.diagnosis === "not_ready" || d.diagnosis === "no_follow_through";
   return d.actual_outcome === "not_done" || d.verdict === "pull_back";
 }
