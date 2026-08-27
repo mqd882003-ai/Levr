@@ -13,6 +13,9 @@ export default function EntryRow({
   onToggleDone,
   onDelete,
   onOpen,
+  onLongPress,
+  onToggleType,
+  typeToggleable = false,
 }: {
   entry: BoardEntry;
   people: Person[];
@@ -20,6 +23,13 @@ export default function EntryRow({
   onToggleDone: (entry: BoardEntry) => void;
   onDelete: (entry: BoardEntry) => Promise<boolean>;
   onOpen: (entry: BoardEntry) => void;
+  // Gesture round (board-gestures-handoff.md): hold → assign sheet; badge
+  // tap → type toggle. Absent (DoneDrawer) = gestures off for that list.
+  onLongPress?: (entry: BoardEntry) => void;
+  onToggleType?: (entry: BoardEntry) => void;
+  // false for personal_project businesses (no one to delegate to — same
+  // rule that hides the EntrySheet toggle) — badge renders static.
+  typeToggleable?: boolean;
 }) {
   const kind =
     entry.isLeverage === true ? "lev" : entry.isLeverage === false ? "del" : "rev";
@@ -48,6 +58,7 @@ export default function EntryRow({
       onComplete={() => onToggleDone(entry)}
       onDelete={() => onDelete(entry)}
       onOpen={() => onOpen(entry)}
+      onLongPress={onLongPress && !entry.done ? () => onLongPress(entry) : undefined}
     >
       <div className="row-main">
         <div className="row-text">{entry.summary}</div>
@@ -69,6 +80,27 @@ export default function EntryRow({
             {stale && <span className="decide">Needs a decision</span>}
             {parked && <span className="parked-tag">Parked</span>}
           </div>
+        )}
+        {entry.isLeverage !== null && !entry.done && onToggleType && (
+          <button
+            type="button"
+            className={`type-badge ${kind === "lev" ? "signal" : "noise"}${
+              typeToggleable ? "" : " static"
+            }`}
+            disabled={!typeToggleable}
+            aria-label={
+              typeToggleable
+                ? `Switch to ${kind === "lev" ? "Delegate" : "Your 20%"}`
+                : undefined
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              if (typeToggleable) onToggleType(entry);
+            }}
+          >
+            <span className="dot" />
+            {kind === "lev" ? "Your 20%" : "Delegate"}
+          </button>
         )}
       </div>
       {entry.isLeverage === false &&

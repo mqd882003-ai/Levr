@@ -28,6 +28,8 @@ const TRASH = (
   </svg>
 );
 
+const PRESS_MS = 480; // board-gestures-handoff.md §3: ~450-500ms hold
+
 export default function SwipeRow({
   rowId,
   rowClass,
@@ -36,6 +38,7 @@ export default function SwipeRow({
   onComplete,
   onDelete, // resolves false if the delete failed (row springs back)
   onOpen,
+  onLongPress, // press-and-hold → assign sheet; drag-move cancels the timer
   children,
 }: {
   rowId: string;
@@ -45,12 +48,40 @@ export default function SwipeRow({
   onComplete: () => void;
   onDelete: () => Promise<boolean>;
   onOpen: () => void;
+  onLongPress?: () => void;
   children: React.ReactNode;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const drag = useRef({ active: false, startX: 0, base: 0, dx: 0, moved: false });
+  const press = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({
+    timer: null,
+    fired: false,
+  });
   const [revealed, setRevealed] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  const cancelPress = () => {
+    if (press.current.timer) clearTimeout(press.current.timer);
+    press.current.timer = null;
+    setPressed(false);
+  };
+  const armPress = () => {
+    if (!onLongPress || revealed) return;
+    press.current.fired = false;
+    setPressed(true);
+    press.current.timer = setTimeout(() => {
+      press.current.timer = null;
+      press.current.fired = true;
+      setPressed(false);
+      // A firing hold owns this touch: kill the in-flight drag so releasing
+      // can't also commit a swipe, and snap the row back where it was.
+      drag.current.active = false;
+      drag.current.moved = false;
+      setX(revealed ? -OPEN : 0, true);
+      onLongPress();
+    }, PRESS_MS);
+  };
 
   const setX = (x: number, animate: boolean) => {
     const el = rowRef.current;
@@ -63,9 +94,12 @@ export default function SwipeRow({
     setRevealed(false);
   };
 
-  const start = (clientX: number, isTouch: boolean) => {
+  const start = (clientX: number, isTouch: boolean, target: EventTarget | null) => {
     // Leave the left screen edge to Safari's native back-swipe.
     if (isTouch && clientX < EDGE_GUARD) return;
+    // The type badge is its own tap target — a press starting there should
+    // neither arm the hold nor start a swipe (board-gestures-handoff.md §3).
+    if (target instanceof Element && target.closest(".type-badge")) return;
     drag.current = {
       active: true,
       startX: clientX,
@@ -74,18 +108,23 @@ export default function SwipeRow({
       moved: false,
     };
     if (rowRef.current) rowRef.current.style.transition = "none";
+    armPress();
   };
   const move = (clientX: number) => {
     const d = drag.current;
     if (!d.active) return;
     let x = d.base + (clientX - d.startX);
-    if (Math.abs(x - d.base) > 6) d.moved = true;
+    if (Math.abs(x - d.base) > 6) {
+      d.moved = true;
+      cancelPress(); // a real drag is a swipe, not a hold
+    }
     if (x > MAX) x = MAX + (x - MAX) * 0.15;
     if (x < -MAX) x = -MAX + (x + MAX) * 0.15;
     d.dx = x;
     setX(x, false);
   };
   const end = () => {
+    cancelPress();
     const d = drag.current;
     if (!d.active) return;
     d.active = false;
@@ -102,6 +141,12 @@ export default function SwipeRow({
   };
 
   const handleClick = () => {
+    if (press.current.fired) {
+      // The hold already opened the assign sheet — the release must not
+      // also open the detail sheet.
+      press.current.fired = false;
+      return;
+    }
     if (drag.current.moved) {
       drag.current.moved = false;
       return;
@@ -125,7 +170,7 @@ export default function SwipeRow({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    start(e.clientX, false);
+    start(e.clientX, false, e.target);
     const mv = (ev: MouseEvent) => move(ev.clientX);
     const up = () => {
       end();
@@ -159,17 +204,22 @@ export default function SwipeRow({
       <div
         id={rowId}
         ref={rowRef}
-        className={rowClass}
+        className={`${rowClass}${pressed ? " pressed" : ""}`}
         role="button"
         tabIndex={0}
         onClick={handleClick}
         onKeyDown={(e) => {
           if (e.key === "Enter") onOpen();
         }}
-        onTouchStart={(e) => start(e.touches[0].clientX, true)}
+        onTouchStart={(e) => start(e.touches[0].clientX, true, e.target)}
         onTouchMove={(e) => move(e.touches[0].clientX)}
         onTouchEnd={end}
+        onTouchCancel={end}
         onMouseDown={handleMouseDown}
+        onContextMenu={(e) => {
+          // Long-press must not summon the platform context menu mid-hold.
+          if (onLongPress) e.preventDefault();
+        }}
       >
         {children}
       </div>

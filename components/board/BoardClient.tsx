@@ -18,6 +18,7 @@ import PulseBar from "@/components/board/PulseBar";
 import ScopeChips from "@/components/board/ScopeChips";
 import CaptureBox from "@/components/capture/CaptureBox";
 import Sheet, { SheetHead } from "@/components/sheets/Sheet";
+import AssignSheet from "@/components/sheets/AssignSheet";
 import CloseoutSheet, { type CloseoutTarget } from "@/components/sheets/CloseoutSheet";
 import EntrySheet, { type EntrySheetSave } from "@/components/sheets/EntrySheet";
 import Toast, { type ToastState } from "@/components/ui/Toast";
@@ -60,6 +61,9 @@ export default function BoardClient({
   const [quickAdd, setQuickAdd] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Gesture round: the row whose long-press (or badge-flip-to-Delegate)
+  // opened the assign sheet.
+  const [assigning, setAssigning] = useState<BoardEntry | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -207,6 +211,93 @@ export default function BoardClient({
       }
     } else showToast("Saved");
   };
+
+  // Gesture round (board-gestures-handoff.md): assign from the long-press
+  // sheet. Reuses saveEntry so every existing side effect fires — delegation
+  // row, notification with quiet-skips, correction logging, A1 create-on-
+  // the-fly. Assigning someone is inherently delegating, so isLeverage
+  // always lands false here.
+  const handleAssign = async (pick: { ownerId?: string; newOwnerName?: string }) => {
+    if (!assigning || saving) return;
+    const entry = assigning;
+    setSaving(true);
+    const res = await saveEntry({
+      id: entry.id,
+      summary: entry.summary,
+      businessId: entry.businessId,
+      projectName: entry.projectName ?? "",
+      isLeverage: false,
+      ownerId: pick.ownerId ?? null,
+      newOwnerName: pick.newOwnerName,
+    });
+    setSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Couldn't assign that", "bad");
+      return;
+    }
+    patchEntry(entry.id, {
+      isLeverage: false,
+      ownerId: res.ownerId ?? null,
+      openDelegationId: res.openDelegationId ?? null,
+      projectId: res.projectId ?? null,
+      projectName: res.projectName ?? null,
+    });
+    setAssigning(null);
+    if (res.createdPerson) setPeopleList((prev) => [...prev, res.createdPerson!]);
+    if (res.assignedName) {
+      const n = res.notification;
+      if (n?.sent) {
+        showToast(`Assigned to ${res.assignedName} — sent via ${(n.channel ?? "").toUpperCase()}`, "good");
+      } else if (n?.skipped === "no_contact") {
+        showToast(`Assigned to ${res.assignedName} (no contact info yet)`, "good");
+      } else if (n?.skipped === "notifications_off") {
+        showToast(`Assigned to ${res.assignedName}`, "good");
+      } else {
+        showToast(`Assigned to ${res.assignedName} — message didn't send`, "bad");
+      }
+    } else showToast("Saved");
+  };
+
+  // Badge tap: flip Your 20% ↔ Delegate in place. Goes through saveEntry so
+  // the flip is correction-logged exactly like an entry-sheet edit (human
+  // override = Tier 2 signal). Flipping TO Delegate opens the assign sheet
+  // right after — switching implies you're about to pick someone.
+  const handleToggleType = async (entry: BoardEntry) => {
+    if (saving) return;
+    const toLev = entry.isLeverage !== true;
+    setSaving(true);
+    const res = await saveEntry({
+      id: entry.id,
+      summary: entry.summary,
+      businessId: entry.businessId,
+      projectName: entry.projectName ?? "",
+      isLeverage: toLev,
+      ownerId: toLev ? null : (entry.ownerId ?? null),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Couldn't switch that", "bad");
+      return;
+    }
+    const patch = {
+      isLeverage: toLev,
+      ownerId: res.ownerId ?? null,
+      openDelegationId: res.openDelegationId ?? null,
+    };
+    patchEntry(entry.id, patch);
+    if (toLev) {
+      showToast("Switched to Your 20%");
+    } else {
+      showToast("Switched to Delegate — pick someone");
+      const updated = { ...entry, ...patch };
+      setTimeout(() => setAssigning(updated), 350);
+    }
+  };
+
+  // personal_project businesses have no one to delegate to — same rule that
+  // hides the EntrySheet toggle; the badge renders static for them.
+  const isTypeToggleable = (e: BoardEntry) =>
+    !(e.businessId && businessProjectType[e.businessId] === "personal_project");
 
   // Shared by the swipe-left Delete button and the sheet's trash action.
   const handleDeleteEntry = async (entry: BoardEntry): Promise<boolean> => {
@@ -363,6 +454,9 @@ export default function BoardClient({
         onToggleDone={handleToggleDone}
         onDelete={handleDeleteEntry}
         onOpen={setEditing}
+        onLongPress={setAssigning}
+        onToggleType={handleToggleType}
+        isTypeToggleable={isTypeToggleable}
       />
       <BoardSection
         title="Delegated"
@@ -381,6 +475,9 @@ export default function BoardClient({
         onToggleDone={handleToggleDone}
         onDelete={handleDeleteEntry}
         onOpen={setEditing}
+        onLongPress={setAssigning}
+        onToggleType={handleToggleType}
+        isTypeToggleable={isTypeToggleable}
       />
       {rev.length > 0 && (
         <BoardSection
@@ -392,6 +489,7 @@ export default function BoardClient({
           onToggleDone={handleToggleDone}
           onDelete={handleDeleteEntry}
           onOpen={setEditing}
+          onLongPress={setAssigning}
         />
       )}
       <DoneDrawer
@@ -414,10 +512,11 @@ export default function BoardClient({
       </button>
 
       <Sheet
-        open={Boolean(editing || closeout || quickAdd || reviewOpen)}
+        open={Boolean(editing || closeout || quickAdd || reviewOpen || assigning)}
         onClose={() => {
           if (closeout) setCloseout(null);
           else if (editing) setEditing(null);
+          else if (assigning) setAssigning(null);
           else if (quickAdd) setQuickAdd(false);
           else setReviewOpen(false);
         }}
@@ -446,6 +545,15 @@ export default function BoardClient({
               patchEntry(entryId, { mentionedPeople })
             }
             onPersonAdded={(person) => setPeopleList((prev) => [...prev, person])}
+          />
+        ) : assigning ? (
+          <AssignSheet
+            entry={assigning}
+            people={peopleList}
+            saving={saving}
+            onPick={(ownerId) => void handleAssign({ ownerId })}
+            onAddNew={(name) => void handleAssign({ newOwnerName: name })}
+            onClose={() => setAssigning(null)}
           />
         ) : quickAdd ? (
           <>

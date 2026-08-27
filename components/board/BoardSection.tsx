@@ -15,6 +15,9 @@ export default function BoardSection({
   onToggleDone,
   onDelete,
   onOpen,
+  onLongPress,
+  onToggleType,
+  isTypeToggleable,
 }: {
   title: string;
   swatch: "signal" | "noise" | "review";
@@ -27,6 +30,9 @@ export default function BoardSection({
   onToggleDone: (entry: BoardEntry) => void;
   onDelete: (entry: BoardEntry) => Promise<boolean>;
   onOpen: (entry: BoardEntry) => void;
+  onLongPress?: (entry: BoardEntry) => void;
+  onToggleType?: (entry: BoardEntry) => void;
+  isTypeToggleable?: (entry: BoardEntry) => boolean;
 }) {
   return (
     <div className="section">
@@ -45,6 +51,9 @@ export default function BoardSection({
             onToggleDone={onToggleDone}
             onDelete={onDelete}
             onOpen={onOpen}
+            onLongPress={onLongPress}
+            onToggleType={onToggleType}
+            typeToggleable={isTypeToggleable ? isTypeToggleable(e) : false}
           />
         ))
       ) : (
