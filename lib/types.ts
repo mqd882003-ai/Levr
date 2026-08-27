@@ -109,6 +109,8 @@ export interface Entry {
   tier2_at: string | null;
   category: string | null;
   parked_until: string | null;
+  split_from_entry_id: string | null;
+  mentioned_people: string[];
 }
 
 export interface ChecklistItem {
@@ -186,6 +188,7 @@ export interface BoardEntry {
   checklist: Array<Pick<ChecklistItem, "id" | "text" | "done">>;
   category: string | null;
   parkedUntil: string | null;
+  mentionedPeople: string[];
 }
 
 // Slim resolved-history rows the assignment sheet uses for per-category trust.

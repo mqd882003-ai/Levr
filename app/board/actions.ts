@@ -510,3 +510,52 @@ export async function deleteEntry(id: string): Promise<{ ok: boolean; error?: st
     return { ok: false, error: err instanceof Error ? err.message : "Delete failed" };
   }
 }
+
+// ---------- Tier 2 "mentioned but not in Team yet" hint ----------
+// A dismissible nudge, never an auto-create — requirements §Team: manual
+// entry is the primary path for people, not an inferred-from-speech import.
+
+async function removeMentionedName(entryId: string, name: string): Promise<void> {
+  const db = supabaseServer();
+  const current = await db
+    .from("entries")
+    .select("mentioned_people")
+    .eq("id", entryId)
+    .maybeSingle<Pick<Entry, "mentioned_people">>();
+  const remaining = (current.data?.mentioned_people ?? []).filter((n) => n !== name);
+  await db.from("entries").update({ mentioned_people: remaining }).eq("id", entryId);
+}
+
+export async function addMentionedPerson(
+  entryId: string,
+  name: string,
+  businessId: string | null,
+): Promise<{ ok: boolean; error?: string; person?: Person }> {
+  try {
+    const trimmed = name.trim();
+    if (!trimmed) return { ok: false, error: "Name is required" };
+    const db = supabaseServer();
+    const created = await db
+      .from("people")
+      .insert({ name: trimmed, business_id: businessId })
+      .select()
+      .single<Person>();
+    if (created.error || !created.data) throw new Error(created.error?.message ?? "Couldn't add them");
+    await removeMentionedName(entryId, name);
+    return { ok: true, person: created.data };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Add failed" };
+  }
+}
+
+export async function dismissMentionedPerson(
+  entryId: string,
+  name: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await removeMentionedName(entryId, name);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Dismiss failed" };
+  }
+}

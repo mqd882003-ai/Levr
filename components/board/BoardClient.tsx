@@ -146,6 +146,7 @@ export default function BoardClient({
       checklist: [],
       category: entry.category,
       parkedUntil: entry.parked_until,
+      mentionedPeople: entry.mentioned_people,
     };
     setEntries((prev) => [row, ...prev]);
     setQuickAdd(false);
@@ -441,6 +442,10 @@ export default function BoardClient({
             onClose={() => setEditing(null)}
             onPark={() => void handlePark()}
             onChecklistChanged={(entryId, checklist) => patchEntry(entryId, { checklist })}
+            onMentionedPeopleChanged={(entryId, mentionedPeople) =>
+              patchEntry(entryId, { mentionedPeople })
+            }
+            onPersonAdded={(person) => setPeopleList((prev) => [...prev, person])}
           />
         ) : quickAdd ? (
           <>

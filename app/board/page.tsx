@@ -102,6 +102,7 @@ export default async function BoardPage({
         .map((c) => ({ id: c.id, text: c.text, done: c.done })),
       category: e.category,
       parkedUntil: e.parked_until,
+      mentionedPeople: e.mentioned_people,
     };
   });
 

@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import {
   addChecklistItem,
+  addMentionedPerson,
   deleteChecklistItem,
+  dismissMentionedPerson,
   toggleChecklistItem,
 } from "@/app/board/actions";
 import { SheetHead } from "@/components/sheets/Sheet";
@@ -39,6 +41,8 @@ export default function EntrySheet({
   onClose,
   onPark,
   onChecklistChanged,
+  onMentionedPeopleChanged,
+  onPersonAdded,
 }: {
   entry: BoardEntry;
   businesses: Business[];
@@ -51,6 +55,8 @@ export default function EntrySheet({
   onClose: () => void;
   onPark: () => void;
   onChecklistChanged: (entryId: string, checklist: ChecklistState) => void;
+  onMentionedPeopleChanged: (entryId: string, names: string[]) => void;
+  onPersonAdded: (person: Person) => void;
 }) {
   const [summary, setSummary] = useState(entry.summary);
   const [businessId, setBusinessId] = useState(entry.businessId ?? "");
@@ -62,6 +68,8 @@ export default function EntrySheet({
   const [ownerQuery, setOwnerQuery] = useState("");
   const [newOwnerName, setNewOwnerName] = useState<string | null>(null);
   const [confirmFirst, setConfirmFirst] = useState(false);
+  const [mentioned, setMentioned] = useState<string[]>(entry.mentionedPeople);
+  const [addingMentioned, setAddingMentioned] = useState<string | null>(null);
 
   useEffect(() => {
     setSummary(entry.summary);
@@ -74,7 +82,27 @@ export default function EntrySheet({
     setOwnerQuery("");
     setNewOwnerName(null);
     setConfirmFirst(false);
+    setMentioned(entry.mentionedPeople);
+    setAddingMentioned(null);
   }, [entry]);
+
+  const patchMentioned = (next: string[]) => {
+    setMentioned(next);
+    onMentionedPeopleChanged(entry.id, next);
+  };
+  const handleMentionedAdd = async (name: string) => {
+    setAddingMentioned(name);
+    const res = await addMentionedPerson(entry.id, name, businessId || null);
+    setAddingMentioned(null);
+    if (res.ok && res.person) {
+      patchMentioned(mentioned.filter((n) => n !== name));
+      onPersonAdded(res.person);
+    }
+  };
+  const handleMentionedDismiss = (name: string) => {
+    patchMentioned(mentioned.filter((n) => n !== name));
+    void dismissMentionedPerson(entry.id, name);
+  };
 
   const patchChecklist = (next: ChecklistState) => {
     setChecklist(next);
@@ -172,6 +200,35 @@ export default function EntrySheet({
             On second look: {entry.tier2Reason} Change the type below if you agree — any
             save clears this.
           </span>
+        </div>
+      )}
+      {mentioned.length > 0 && (
+        <div className="field">
+          <label>People mentioned</label>
+          {mentioned.map((name) => (
+            <div key={name} className="check-item">
+              <span className="txt">{name}</span>
+              <button
+                type="button"
+                className="pressable"
+                style={{ width: "auto", padding: "0 12px", height: 32, fontSize: 13, fontWeight: 600, borderRadius: 8 }}
+                disabled={addingMentioned === name}
+                onClick={() => void handleMentionedAdd(name)}
+              >
+                {addingMentioned === name ? "Adding…" : "Add to Team"}
+              </button>
+              <button
+                type="button"
+                className="rm pressable"
+                aria-label={`Not a team member: ${name}`}
+                onClick={() => handleMentionedDismiss(name)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
         </div>
       )}
       <div className="field">

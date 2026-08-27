@@ -108,9 +108,33 @@ export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
     '- "checklist": when is_leverage is false, 2-5 short concrete sub-steps in order (imperative, max 8 words each); else [].\n' +
     '- "category": for delegate-able tasks, the single best fit from the active vocabulary, or null.\n' +
     '- "propose_category": ONLY if is_leverage is false and nothing in the vocabulary genuinely fits: a short 1-3 word new category name; else null.\n' +
-    '- "reason": one sentence, only when you disagree with the first-pass is_leverage or business call; else null.\n\n' +
-    'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,"summary":"...","suggested_owner_id":...,"checklist":[...],"category":...,"propose_category":...,"reason":...}'
+    '- "reason": one sentence, only when you disagree with the first-pass is_leverage or business call; else null.\n' +
+    '- "additional_segments": ONLY if this single capture genuinely narrates separate concerns for ' +
+    "OTHER businesses too, not just one cohesive thought — an array of {\"business\": name from the " +
+    'Businesses list (never the same business as the "business" field above), "text_excerpt": the ' +
+    'relevant portion of the captured entry for this business (substantive, not a fragment), ' +
+    '"summary": board-readable line max 12 words, "is_leverage": true|false|null, ' +
+    '"suggested_owner_id": id|null, "category": name|null, "checklist": [...] (same rules as above)}. ' +
+    "Default to an EMPTY array — most captures are one thought about one business; only split when " +
+    "the founder is clearly moving between distinct businesses in the same breath.\n" +
+    '- "mentioned_new_people": names of real individuals (colleagues, collaborators, potential ' +
+    "delegates) named in the text who are NOT already in the Team list above — max 5, plain names as " +
+    "said. Never include passing references to clients, patients, or strangers who wouldn't belong on " +
+    "the founder's team. Default to an empty array when unsure.\n\n" +
+    'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,' +
+    '"summary":"...","suggested_owner_id":...,"checklist":[...],"category":...,"propose_category":...,' +
+    '"reason":...,"additional_segments":[...],"mentioned_new_people":[...]}'
   );
+}
+
+export interface Tier2Segment {
+  business: string | null;
+  text_excerpt: string;
+  summary: string;
+  is_leverage: boolean | null;
+  suggested_owner_id: string | null;
+  category: string | null;
+  checklist: string[];
 }
 
 interface Tier2Result {
@@ -123,6 +147,46 @@ interface Tier2Result {
   category: string | null;
   propose_category: string | null;
   reason: string | null;
+  additional_segments: Tier2Segment[];
+  mentioned_new_people: string[];
+}
+
+function parseChecklist(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((s): s is string => typeof s === "string" && Boolean(s.trim())).slice(0, 5)
+    : [];
+}
+
+function parseSegment(value: unknown, ctx: Tier2Context, primaryBusiness: string | null): Tier2Segment | null {
+  if (typeof value !== "object" || value === null) return null;
+  const s = value as Record<string, unknown>;
+  const business =
+    typeof s.business === "string" && ctx.businesses.some((b) => b.name === s.business)
+      ? (s.business as string)
+      : null;
+  // Never a real split if it has no business of its own, or duplicates the
+  // primary segment's business — that's just the same entry, not a split.
+  if (!business || business === primaryBusiness) return null;
+  const text_excerpt = typeof s.text_excerpt === "string" ? s.text_excerpt.trim() : "";
+  if (!text_excerpt) return null;
+  const is_leverage = typeof s.is_leverage === "boolean" ? s.is_leverage : null;
+  return {
+    business,
+    text_excerpt,
+    summary: typeof s.summary === "string" && s.summary.trim() ? s.summary.trim() : text_excerpt,
+    is_leverage,
+    suggested_owner_id:
+      is_leverage === false &&
+      typeof s.suggested_owner_id === "string" &&
+      ctx.people.some((person) => person.id === s.suggested_owner_id)
+        ? (s.suggested_owner_id as string)
+        : null,
+    category:
+      typeof s.category === "string" && ctx.categories.some((c) => c.name === s.category)
+        ? (s.category as string)
+        : null,
+    checklist: parseChecklist(s.checklist),
+  };
 }
 
 function parseTier2(raw: string, ctx: Tier2Context, fallbackSummary: string): Tier2Result {
@@ -134,6 +198,7 @@ function parseTier2(raw: string, ctx: Tier2Context, fallbackSummary: string): Ti
       ? (p.business as string)
       : null;
   const is_leverage = typeof p.is_leverage === "boolean" ? p.is_leverage : null;
+  const existingNames = new Set(ctx.people.map((person) => person.name.toLowerCase()));
   return {
     business,
     project: typeof p.project === "string" && p.project.trim() ? p.project.trim() : null,
@@ -146,11 +211,7 @@ function parseTier2(raw: string, ctx: Tier2Context, fallbackSummary: string): Ti
       ctx.people.some((person) => person.id === p.suggested_owner_id)
         ? (p.suggested_owner_id as string)
         : null,
-    checklist: Array.isArray(p.checklist)
-      ? p.checklist
-          .filter((s): s is string => typeof s === "string" && Boolean(s.trim()))
-          .slice(0, 5)
-      : [],
+    checklist: parseChecklist(p.checklist),
     category:
       typeof p.category === "string" && ctx.categories.some((c) => c.name === p.category)
         ? (p.category as string)
@@ -160,6 +221,23 @@ function parseTier2(raw: string, ctx: Tier2Context, fallbackSummary: string): Ti
         ? p.propose_category.trim()
         : null,
     reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
+    additional_segments: Array.isArray(p.additional_segments)
+      ? p.additional_segments
+          .map((s) => parseSegment(s, ctx, business))
+          .filter((s): s is Tier2Segment => s !== null)
+          .slice(0, 4)
+      : [],
+    mentioned_new_people: Array.isArray(p.mentioned_new_people)
+      ? Array.from(
+          new Set(
+            p.mentioned_new_people.filter(
+              (s): s is string => typeof s === "string" && Boolean(s.trim()),
+            ),
+          ),
+        )
+          .filter((name) => !existingNames.has(name.toLowerCase()))
+          .slice(0, 5)
+      : [],
   };
 }
 
@@ -245,25 +323,7 @@ export async function runTier2(entryId: string): Promise<void> {
     }
 
     // Resolve/create project for the revised call.
-    let projectId: string | null = null;
-    if (result.project) {
-      const existing = ctx.projects.find(
-        (p) => p.name.toLowerCase() === result.project!.toLowerCase(),
-      );
-      if (existing) projectId = existing.id;
-      else {
-        const created = await db
-          .from("projects")
-          .insert({
-            name: result.project,
-            business_id: businessId,
-            created_from_entry_id: entryId,
-          })
-          .select()
-          .single<Project>();
-        projectId = created.data?.id ?? null;
-      }
-    }
+    const projectId = await resolveProjectId(db, result.project, businessId, entryId, ctx.projects);
 
     const changed =
       disagrees ||
@@ -282,6 +342,7 @@ export async function runTier2(entryId: string): Promise<void> {
         tier2_status: changed ? "revised" : "confirmed",
         tier2_reason: result.reason,
         tier2_at: new Date().toISOString(),
+        mentioned_people: result.mentioned_new_people,
       })
       .eq("id", entryId);
 
@@ -290,20 +351,34 @@ export async function runTier2(entryId: string): Promise<void> {
 
     // Checklist only for delegated items, and only if none exists yet.
     if (result.is_leverage === false && result.checklist.length) {
-      const existing = await db
-        .from("checklist_items")
-        .select("id")
-        .eq("entry_id", entryId)
-        .limit(1)
-        .maybeSingle<{ id: string }>();
-      if (!existing.data) {
-        await db.from("checklist_items").insert(
-          result.checklist.map((text, i) => ({
-            entry_id: entryId,
-            text,
-            sort_order: i,
-          })),
-        );
+      await insertChecklistIfNone(db, entryId, result.checklist);
+    }
+
+    // Dave asked (after testing HANDOFF task 4) for captures that genuinely
+    // narrate separate concerns for other businesses to land as their own
+    // entries too, instead of getting silently absorbed into just one.
+    for (const segment of result.additional_segments) {
+      const segmentBusinessId = ctx.businesses.find((b) => b.name === segment.business)?.id ?? null;
+      const created = await db
+        .from("entries")
+        .insert({
+          text: segment.text_excerpt,
+          summary: segment.summary,
+          business_id: segmentBusinessId,
+          project_id: null, // split segments aren't assigned a project — a deliberate scope cut, not an oversight
+          is_leverage: segment.is_leverage,
+          suggested_person_id: segment.suggested_owner_id,
+          category: segment.category,
+          source: entry.source,
+          split_from_entry_id: entryId,
+          tier2_status: "confirmed",
+          tier2_reason: "Split from a multi-business capture.",
+          tier2_at: new Date().toISOString(),
+        })
+        .select()
+        .single<Entry>();
+      if (created.data && segment.is_leverage === false && segment.checklist.length) {
+        await insertChecklistIfNone(db, created.data.id, segment.checklist);
       }
     }
   } catch (err) {
@@ -319,6 +394,39 @@ export async function runTier2(entryId: string): Promise<void> {
 function unwrap<T>(result: { data: T[] | null; error: { message: string } | null }): T[] {
   if (result.error) throw new Error(result.error.message);
   return result.data ?? [];
+}
+
+type Db = ReturnType<typeof supabaseServer>;
+
+async function resolveProjectId(
+  db: Db,
+  projectName: string | null,
+  businessId: string | null,
+  createdFromEntryId: string | null,
+  knownProjects: Project[],
+): Promise<string | null> {
+  if (!projectName) return null;
+  const existing = knownProjects.find((p) => p.name.toLowerCase() === projectName.toLowerCase());
+  if (existing) return existing.id;
+  const created = await db
+    .from("projects")
+    .insert({ name: projectName, business_id: businessId, created_from_entry_id: createdFromEntryId })
+    .select()
+    .single<Project>();
+  return created.data?.id ?? null;
+}
+
+async function insertChecklistIfNone(db: Db, entryId: string, items: string[]): Promise<void> {
+  const existing = await db
+    .from("checklist_items")
+    .select("id")
+    .eq("entry_id", entryId)
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+  if (existing.data) return;
+  await db
+    .from("checklist_items")
+    .insert(items.map((text, i) => ({ entry_id: entryId, text, sort_order: i })));
 }
 
 // HANDOFF-personal-config-import.md task 3: Sonnet, not Haiku, owns "is this
