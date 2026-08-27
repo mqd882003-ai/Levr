@@ -2,7 +2,7 @@
 
 Capture-and-delegate tool: talk or type a thought, it gets classified into **Your 20%** (do it yourself) or **Delegated** (hand it off), with delegation history per person.
 
-Status: real build in progress — see `PROJECT_STATE.md` for the current build state, env/DB notes, and next actions.
+Status: real build in progress — see `Levr_PROJECT_STATE.md` for the current build state, env/DB notes, and next actions.
 
 | What | Where |
 |---|---|
