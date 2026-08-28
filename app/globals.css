@@ -1778,6 +1778,79 @@ select:focus-visible {
   padding: 2px 6px;
   border-radius: 100px;
 }
+/* Routing junction (stage 3): ranked owner rows + explore nudge.
+   Same chip vocabulary as .people-pick, stacked full-width so each row
+   carries a mono meta line (capacity + top reason). */
+.people-pick.ranked {
+  flex-direction: column;
+  gap: 8px;
+}
+.people-pick.ranked button {
+  width: 100%;
+  height: auto;
+  min-height: 56px;
+  padding: 8px 14px 8px 8px;
+  border-radius: var(--r-md);
+  justify-content: flex-start;
+  text-align: left;
+}
+.pick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pick-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pick-meta {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.people-pick.ranked button.on .pick-name {
+  color: #fff;
+}
+.people-pick.ranked button.on .pick-meta {
+  color: rgba(255, 255, 255, 0.75);
+}
+/* The explore nudge: an aside below the ranked list, deliberately NOT styled
+   like a second AI pick — dashed border, muted text, invitation buttons. */
+.nudge {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--card-2);
+}
+.nudge-text {
+  font-size: 13.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.nudge-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.nudge-actions button {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 100px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.nudge-actions button.try {
+  background: var(--signal-tint);
+  border-color: var(--signal);
+  color: var(--signal-text);
+}
 .actions {
   display: flex;
   gap: 10px;

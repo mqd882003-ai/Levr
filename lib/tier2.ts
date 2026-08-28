@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabase/server";
 import { proposeCategory } from "@/lib/evolve";
-import { recommendOwner, topPick } from "@/lib/routing";
+import { topPick } from "@/lib/routing";
+import { recommendOwner } from "@/lib/routingServer";
 import type {
   Business,
   Category,

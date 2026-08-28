@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { recommendFromSnapshot, type RoutingSnapshot } from "@/lib/routing";
 import {
   applyReviewSuggestion,
   closeoutDelegation,
@@ -41,6 +42,7 @@ export default function BoardClient({
   businessProjectType,
   people,
   evidence,
+  routingSnap,
   newId,
 }: {
   initialEntries: BoardEntry[];
@@ -48,6 +50,7 @@ export default function BoardClient({
   businessProjectType: Record<string, ProjectType>;
   people: Person[];
   evidence: TrustEvidence[];
+  routingSnap: RoutingSnapshot;
   newId: string | null;
 }) {
   const router = useRouter();
@@ -64,6 +67,21 @@ export default function BoardClient({
   // Gesture round: the row whose long-press (or badge-flip-to-Delegate)
   // opened the assign sheet.
   const [assigning, setAssigning] = useState<BoardEntry | null>(null);
+  // Routing junction (stage 3): rank owners for the entry being assigned.
+  // peopleList overrides the snapshot's people so someone inline-created
+  // mid-session still shows up (as an unknown-baseline row).
+  const assignRouting = useMemo(
+    () =>
+      assigning
+        ? recommendFromSnapshot(
+            { ...routingSnap, people: peopleList },
+            assigning.id,
+            assigning.businessId,
+            assigning.category,
+          )
+        : null,
+    [assigning, peopleList, routingSnap],
+  );
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -550,6 +568,7 @@ export default function BoardClient({
           <AssignSheet
             entry={assigning}
             people={peopleList}
+            routing={assignRouting}
             saving={saving}
             onPick={(ownerId) => void handleAssign({ ownerId })}
             onAddNew={(name) => void handleAssign({ newOwnerName: name })}

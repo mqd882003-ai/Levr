@@ -1,13 +1,16 @@
 import BoardClient from "@/components/board/BoardClient";
+import type { RoutingSnapshot } from "@/lib/routing";
 import { supabaseConfigured, supabaseServer } from "@/lib/supabase/server";
 import type {
   BoardEntry,
   Business,
   BusinessSettings,
+  Category,
   ChecklistItem,
   Delegation,
   Entry,
   Person,
+  PersonCategoryRating,
   Project,
   ProjectType,
   TrustEvidence,
@@ -47,6 +50,8 @@ export default async function BoardPage({
     delegationsRes,
     checklistRes,
     businessSettingsRes,
+    categoriesRes,
+    ratingsRes,
   ] = await Promise.all([
     db.from("entries").select("*").order("captured_at", { ascending: false }),
     db.from("businesses").select("*").order("created_at"),
@@ -55,6 +60,8 @@ export default async function BoardPage({
     db.from("delegations").select("*").order("assigned_at", { ascending: false }),
     db.from("checklist_items").select("*").order("sort_order"),
     db.from("business_settings").select("business_id, project_type"),
+    db.from("categories").select("*"),
+    db.from("person_category_ratings").select("*"),
   ]);
 
   const entries = (entriesRes.data ?? []) as Entry[];
@@ -119,6 +126,24 @@ export default async function BoardPage({
       expected_outcome: d.expected_outcome,
     }));
 
+  // Routing junction (stage 3): the signals AssignSheet ranks from, built
+  // from data this page already loads. Same "N active" definition as the
+  // Team card: open delegation on an entry that is still open.
+  const openEntryIds = new Set(entries.filter((e) => e.status === "open").map((e) => e.id));
+  const activeCounts: Record<string, number> = {};
+  for (const d of delegations) {
+    if (d.person_id && !d.resolved_at && openEntryIds.has(d.entry_id)) {
+      activeCounts[d.person_id] = (activeCounts[d.person_id] ?? 0) + 1;
+    }
+  }
+  const routingSnap: RoutingSnapshot = {
+    people,
+    evidence,
+    activeCounts,
+    categories: (categoriesRes.data ?? []) as Category[],
+    ratings: (ratingsRes.data ?? []) as PersonCategoryRating[],
+  };
+
   return (
     <BoardClient
       initialEntries={board}
@@ -126,6 +151,7 @@ export default async function BoardPage({
       businessProjectType={businessProjectType}
       people={people}
       evidence={evidence}
+      routingSnap={routingSnap}
       newId={newId ?? null}
     />
   );

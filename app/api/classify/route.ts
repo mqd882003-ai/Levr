@@ -1,7 +1,8 @@
 import { NextResponse, after } from "next/server";
 import { classifyCapture, type ClassifyContext, type Chunk } from "@/lib/classify";
 import { parseDeadline } from "@/lib/deadline";
-import { loadRoutingSnapshot, recommendFromSnapshot, topPick } from "@/lib/routing";
+import { recommendFromSnapshot, topPick } from "@/lib/routing";
+import { loadRoutingSnapshot } from "@/lib/routingServer";
 import { runTier2 } from "@/lib/tier2";
 import { supabaseServer, supabaseConfigured } from "@/lib/supabase/server";
 import type {
