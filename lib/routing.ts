@@ -220,29 +220,33 @@ export function rankOwners(input: RoutingInput): RoutingResult {
   return { entryId: input.entryId, ranked, nudge };
 }
 
-// DB loader — the one seam callers use (Tier 1/Tier 2 after they write
-// category + business_id, AssignSheet's server side). Read-only; writing the
-// routing_recommendations row happens where a suggestion is actually shown.
-export async function recommendOwner(
-  entryId: string,
-  businessId: string | null,
-  category: string | null,
-): Promise<RoutingResult> {
+// One load of every signal the junction reads, reusable across the chunks of
+// a single capture (the classify route ranks up to MAX_CHUNKS entries from
+// one snapshot instead of re-querying per chunk).
+export interface RoutingSnapshot {
+  people: Person[];
+  evidence: TrustEvidence[];
+  activeCounts: Record<string, number>;
+  categories: Category[];
+  ratings: PersonCategoryRating[];
+}
+
+export async function loadRoutingSnapshot(): Promise<RoutingSnapshot> {
   const db = supabaseServer();
-  const [peopleRes, delegationsRes, entriesRes, categoriesRes] = await Promise.all([
+  const [peopleRes, delegationsRes, entriesRes, categoriesRes, ratingsRes] = await Promise.all([
     db.from("people").select("*").order("created_at"),
     db.from("delegations").select("*"),
     db.from("entries").select("id, status").eq("status", "open"),
     db.from("categories").select("*"),
+    db.from("person_category_ratings").select("*"),
   ]);
   if (peopleRes.error) throw new Error(peopleRes.error.message);
   if (delegationsRes.error) throw new Error(delegationsRes.error.message);
   if (entriesRes.error) throw new Error(entriesRes.error.message);
   if (categoriesRes.error) throw new Error(categoriesRes.error.message);
+  if (ratingsRes.error) throw new Error(ratingsRes.error.message);
 
-  const people = (peopleRes.data ?? []) as Person[];
   const delegations = (delegationsRes.data ?? []) as Delegation[];
-  const categories = (categoriesRes.data ?? []) as Category[];
 
   // Same "N active" definition as the Team card: open delegation on an
   // entry that is still open.
@@ -267,32 +271,56 @@ export async function recommendOwner(
       expected_outcome: d.expected_outcome,
     }));
 
+  return {
+    people: (peopleRes.data ?? []) as Person[],
+    evidence,
+    activeCounts,
+    categories: (categoriesRes.data ?? []) as Category[],
+    ratings: (ratingsRes.data ?? []) as PersonCategoryRating[],
+  };
+}
+
+export function recommendFromSnapshot(
+  snap: RoutingSnapshot,
+  entryId: string,
+  businessId: string | null,
+  category: string | null,
+): RoutingResult {
   // entries.category / delegations.category store the name; ratings key on id.
   const categoryId = category
-    ? (categories.find((c) => c.name === category)?.id ?? null)
+    ? (snap.categories.find((c) => c.name === category)?.id ?? null)
     : null;
-  let ratings: ScopedRating[] = [];
-  if (categoryId) {
-    const ratingsRes = await db
-      .from("person_category_ratings")
-      .select("*")
-      .eq("category_id", categoryId);
-    if (ratingsRes.error) throw new Error(ratingsRes.error.message);
-    ratings = ((ratingsRes.data ?? []) as PersonCategoryRating[]).map((r) => ({
-      person_id: r.person_id,
-      level: r.level,
-      source: r.source,
-    }));
-  }
-
+  const ratings: ScopedRating[] = categoryId
+    ? snap.ratings
+        .filter((r) => r.category_id === categoryId)
+        .map((r) => ({ person_id: r.person_id, level: r.level, source: r.source }))
+    : [];
   return rankOwners({
     entryId,
     businessId,
     category,
-    people,
-    evidence,
+    people: snap.people,
+    evidence: snap.evidence,
     ratings,
-    activeCounts,
+    activeCounts: snap.activeCounts,
     now: new Date(),
   });
+}
+
+// DB loader — the one seam callers use (Tier 1/Tier 2 after they write
+// category + business_id, AssignSheet's server side). Read-only; writing the
+// routing_recommendations row happens where a suggestion is actually shown.
+export async function recommendOwner(
+  entryId: string,
+  businessId: string | null,
+  category: string | null,
+): Promise<RoutingResult> {
+  return recommendFromSnapshot(await loadRoutingSnapshot(), entryId, businessId, category);
+}
+
+// The single id worth persisting to entries.suggested_person_id: the top pick,
+// unless everyone is at capacity — a full plate is never "the suggestion".
+export function topPick(result: RoutingResult): OwnerRecommendation | null {
+  const first = result.ranked[0];
+  return first && !first.reasons.capacity_full ? first : null;
 }

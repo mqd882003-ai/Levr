@@ -1,13 +1,13 @@
 import { NextResponse, after } from "next/server";
 import { classifyCapture, type ClassifyContext, type Chunk } from "@/lib/classify";
 import { parseDeadline } from "@/lib/deadline";
+import { loadRoutingSnapshot, recommendFromSnapshot, topPick } from "@/lib/routing";
 import { runTier2 } from "@/lib/tier2";
 import { supabaseServer, supabaseConfigured } from "@/lib/supabase/server";
 import type {
   Business,
   BusinessSettings,
   Category,
-  Delegation,
   Entry,
   Person,
   Project,
@@ -61,17 +61,11 @@ export async function POST(request: Request) {
   const entry = inserted.data; // the anchor if Tier 1 returns more than one chunk
 
   try {
-    const [businesses, projects, people, delegations, categories, businessSettingsRes] =
+    const [businesses, projects, people, categories, businessSettingsRes] =
       await Promise.all([
         db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
         db.from("projects").select("*").then(unwrap<Project>),
         db.from("people").select("*").then(unwrap<Person>),
-        db
-          .from("delegations")
-          .select("*")
-          .order("assigned_at", { ascending: false })
-          .limit(100)
-          .then(unwrap<Delegation>),
         db.from("categories").select("*").eq("status", "active").then(unwrap<Category>),
         db.from("business_settings").select("business_id, project_type"),
       ]);
@@ -82,9 +76,14 @@ export async function POST(request: Request) {
     >[]) {
       businessProjectType[bs.business_id] = bs.project_type;
     }
-    const ctx: ClassifyContext = { businesses, businessProjectType, projects, people, delegations, categories };
+    const ctx: ClassifyContext = { businesses, businessProjectType, projects, people, categories };
 
     const chunks = await classifyCapture(entry.text, ctx);
+
+    // Routing junction (routing-junction-handoff.md §3): classification
+    // classifies, routing routes. One snapshot of the junction's signals
+    // serves every chunk of this capture.
+    const routingSnap = await loadRoutingSnapshot();
 
     // Resolve/create a project for a chunk. Tracks newly-created projects
     // locally so two chunks in the same capture wanting the same new project
@@ -127,13 +126,18 @@ export async function POST(request: Request) {
       const businessId = businesses.find((b) => b.name === chunk.business)?.id ?? null;
       const projectId = await resolveProjectId(chunk, businessId);
       const parsedDeadline = parseDeadline(chunk.explicit_deadline, captureAnchor);
+      const suggestion =
+        chunk.is_leverage === false
+          ? (topPick(recommendFromSnapshot(routingSnap, entry.id, businessId, chunk.category))
+              ?.personId ?? null)
+          : null;
       const fields = {
         text: chunk.text,
         summary: chunk.summary,
         business_id: businessId,
         project_id: projectId,
         is_leverage: chunk.is_leverage,
-        suggested_person_id: chunk.suggested_owner_id,
+        suggested_person_id: suggestion,
         category: chunk.category,
         mentioned_people: chunk.mentioned_people,
         explicit_deadline: chunk.explicit_deadline,

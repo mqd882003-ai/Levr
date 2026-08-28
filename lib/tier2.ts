@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabase/server";
 import { proposeCategory } from "@/lib/evolve";
+import { recommendOwner, topPick } from "@/lib/routing";
 import type {
   Business,
   Category,
@@ -65,15 +66,6 @@ export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
     role: p.role ?? "",
     business: p.business_id ? (businessName.get(p.business_id) ?? null) : null,
     capability_notes: p.capability_notes || "",
-    recent_delegations: ctx.delegations
-      .filter((d) => d.person_id === p.id)
-      .slice(0, 5)
-      .map((d) => ({
-        task: d.expected_outcome,
-        outcome: d.actual_outcome,
-        verdict: d.verdict,
-        note: d.outcome_note ?? "",
-      })),
   }));
   const pastCorrections = ctx.corrections.map((c) => ({
     field: c.field,
@@ -93,7 +85,7 @@ export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
     "make the sharper final call.\n\n" +
     "Businesses: " + JSON.stringify(ctx.businesses.map((b) => b.name)) +
     "\nExisting projects: " + JSON.stringify(ctx.projects.map((p) => p.name)) +
-    "\nTeam (capability notes + recent delegation history): " + JSON.stringify(team) +
+    "\nTeam (capability notes): " + JSON.stringify(team) +
     "\nHow the founder has corrected past AI calls (most recent first): " +
     JSON.stringify(pastCorrections) +
     "\nTask categories (active vocabulary): " + JSON.stringify(ctx.categories.map((c) => c.name)) +
@@ -104,7 +96,6 @@ export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
     '- "project": existing project name (fuzzy match), a short NEW 2-4 word name, or null.\n' +
     '- "is_leverage": true = founder-only; false = delegate-able; null only if truly undecidable.\n' +
     '- "summary": one board-readable line, max 12 words (keep the first-pass summary unless it misses the point).\n' +
-    '- "suggested_owner_id": best team member id when is_leverage is false (weigh notes and verdicts; rule out pull-backs on similar work), else null.\n' +
     '- "checklist": when is_leverage is false, 2-5 short concrete sub-steps in order (imperative, max 8 words each); else [].\n' +
     '- "category": for delegate-able tasks, the single best fit from the active vocabulary, or null.\n' +
     '- "propose_category": ONLY if is_leverage is false and nothing in the vocabulary genuinely fits: a short 1-3 word new category name; else null.\n' +
@@ -114,7 +105,7 @@ export function buildTier2Prompt(entry: Entry, ctx: Tier2Context): string {
     "said. Never include passing references to clients, patients, or strangers who wouldn't belong on " +
     "the founder's team. Default to an empty array when unsure.\n\n" +
     'Reply with ONLY raw JSON, no markdown fences: {"business":...,"project":...,"is_leverage":...,' +
-    '"summary":"...","suggested_owner_id":...,"checklist":[...],"category":...,"propose_category":...,' +
+    '"summary":"...","checklist":[...],"category":...,"propose_category":...,' +
     '"reason":...,"mentioned_new_people":[...]}'
   );
 }
@@ -124,7 +115,6 @@ interface Tier2Result {
   project: string | null;
   is_leverage: boolean | null;
   summary: string;
-  suggested_owner_id: string | null;
   checklist: string[];
   category: string | null;
   propose_category: string | null;
@@ -154,12 +144,6 @@ function parseTier2(raw: string, ctx: Tier2Context, fallbackSummary: string): Ti
     is_leverage,
     summary:
       typeof p.summary === "string" && p.summary.trim() ? p.summary.trim() : fallbackSummary,
-    suggested_owner_id:
-      is_leverage === false &&
-      typeof p.suggested_owner_id === "string" &&
-      ctx.people.some((person) => person.id === p.suggested_owner_id)
-        ? (p.suggested_owner_id as string)
-        : null,
     checklist: parseChecklist(p.checklist),
     category:
       typeof p.category === "string" && ctx.categories.some((c) => c.name === p.category)
@@ -275,10 +259,20 @@ export async function runTier2(entryId: string): Promise<void> {
       new Set([...(fresh.data.mentioned_people ?? []), ...result.mentioned_new_people]),
     );
 
+    // Routing junction (routing-junction-handoff.md §3): classification
+    // classifies, routing routes. With the revised category/business settled,
+    // lib/routing.ts recomputes the owner suggestion — neither LLM pass picks
+    // owners anymore.
+    const finalCategory = result.category ?? entry.category;
+    const suggestion =
+      result.is_leverage === false
+        ? (topPick(await recommendOwner(entryId, businessId, finalCategory))?.personId ?? null)
+        : null;
+
     const changed =
       disagrees ||
       projectId !== entry.project_id ||
-      result.suggested_owner_id !== entry.suggested_person_id ||
+      suggestion !== entry.suggested_person_id ||
       result.summary !== entry.summary;
     await db
       .from("entries")
@@ -287,8 +281,8 @@ export async function runTier2(entryId: string): Promise<void> {
         project_id: projectId,
         is_leverage: result.is_leverage,
         summary: result.summary,
-        suggested_person_id: result.suggested_owner_id,
-        category: result.category ?? entry.category,
+        suggested_person_id: suggestion,
+        category: finalCategory,
         tier2_status: changed ? "revised" : "confirmed",
         tier2_reason: result.reason,
         tier2_at: new Date().toISOString(),

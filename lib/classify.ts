@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Business, Category, Delegation, Person, Project, ProjectType } from "@/lib/types";
+import type { Business, Category, Person, Project, ProjectType } from "@/lib/types";
 
 // Per docs/levr-requirements.md § Classification backend: short structured-output
 // task, pinned to Haiku 4.5. Do not upgrade without a concrete accuracy reason.
@@ -14,7 +14,6 @@ export interface ClassifyContext {
   businessProjectType: Record<string, ProjectType>;
   projects: Project[];
   people: Person[];
-  delegations: Delegation[]; // recent history, used to weigh owner suggestions
   categories: Category[]; // active task-category vocabulary (A3)
 }
 
@@ -27,7 +26,6 @@ export interface Chunk {
   project: string | null;
   is_leverage: boolean | null;
   summary: string;
-  suggested_owner_id: string | null;
   category: string | null;
   mentioned_people: string[]; // explicitly-named people not already in Team — strict, no inference
   explicit_deadline: string | null; // literal deadline text, or null — never inferred
@@ -48,14 +46,6 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     role: p.role ?? "",
     business: ctx.businesses.find((b) => b.id === p.business_id)?.name ?? null,
     capability_notes: p.capability_notes || "",
-    recent_delegations: ctx.delegations
-      .filter((d) => d.person_id === p.id)
-      .slice(0, 5)
-      .map((d) => ({
-        outcome: d.actual_outcome,
-        verdict: d.verdict,
-        note: d.outcome_note ?? "",
-      })),
   }));
 
   return (
@@ -63,7 +53,7 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     "Businesses (with project_type — a 'personal_project' business has no one to delegate to, " +
     "so is_leverage is always true there, no judgment needed): " + JSON.stringify(businesses) +
     "\nExisting projects: " + JSON.stringify(projectNames) +
-    "\nTeam (with capability notes and recent delegation verdicts): " + JSON.stringify(team) +
+    "\nTeam (with capability notes): " + JSON.stringify(team) +
     "\nTask categories: " + JSON.stringify(ctx.categories.map((c) => c.name)) +
     "\n\nCaptured entry: " + JSON.stringify(text) +
     "\n\nStep 1 — enumerate concerns. A capture may contain any number of distinct concerns, " +
@@ -87,7 +77,6 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     '- "is_leverage": true if this is founder-only work (strategy, judgment, key relationships, pricing, hiring); false if operational/repeatable work someone else could do; ' +
     "ALWAYS true when the business's project_type is personal_project; null only if genuinely impossible to tell.\n" +
     '- "summary": this chunk compressed to one board-readable line, max 12 words.\n' +
-    '- "suggested_owner_id": only when is_leverage is false — the id of the best team member, weighing role, capability notes, and past verdicts. Rule out anyone whose notes or history say pull-back on similar work. Otherwise null.\n' +
     '- "category": for delegate-able tasks, the single best fit from the Task categories list, or null if none fits (null for founder-only items).\n' +
     '- "mentioned_people": names of people EXPLICITLY stated in this chunk who could plausibly be ' +
     "asked to do work — never a lead, customer, vendor, tenant, or other external party the task " +
@@ -135,7 +124,6 @@ const CLASSIFY_TOOL = {
             project: { type: ["string", "null"] },
             is_leverage: { type: ["boolean", "null"] },
             summary: { type: "string" },
-            suggested_owner_id: { type: ["string", "null"] },
             category: { type: ["string", "null"] },
             mentioned_people: { type: "array", items: { type: "string" } },
             explicit_deadline: { type: ["string", "null"] },
@@ -189,12 +177,6 @@ function parseChunk(value: unknown, ctx: ClassifyContext, fallbackText: string):
       ? c.is_leverage
       : null;
   const summary = typeof c.summary === "string" && c.summary.trim() ? c.summary.trim() : text;
-  const suggested_owner_id =
-    is_leverage === false &&
-    typeof c.suggested_owner_id === "string" &&
-    ctx.people.some((person) => person.id === c.suggested_owner_id)
-      ? (c.suggested_owner_id as string)
-      : null;
   const category =
     typeof c.category === "string" && ctx.categories.some((cat) => cat.name === c.category)
       ? (c.category as string)
@@ -224,7 +206,6 @@ function parseChunk(value: unknown, ctx: ClassifyContext, fallbackText: string):
     project: typeof c.project === "string" && c.project.trim() ? c.project.trim() : null,
     is_leverage,
     summary,
-    suggested_owner_id,
     category,
     mentioned_people,
     explicit_deadline,
@@ -294,7 +275,6 @@ export async function classifyCapture(text: string, ctx: ClassifyContext): Promi
         project: null,
         is_leverage: null,
         summary: text,
-        suggested_owner_id: null,
         category: null,
         mentioned_people: [],
         explicit_deadline: null,
