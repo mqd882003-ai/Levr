@@ -714,6 +714,11 @@ select:focus-visible {
   margin-bottom: 8px;
   max-height: 320px;
   touch-action: pan-y;
+  /* iOS: preventDefault on contextmenu does NOT stop the native text-selection
+     loupe/handles during the long-press hold — only these do. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .row-wrap.removed {
   max-height: 0 !important;

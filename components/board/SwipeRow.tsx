@@ -79,6 +79,10 @@ export default function SwipeRow({
       drag.current.active = false;
       drag.current.moved = false;
       setX(revealed ? -OPEN : 0, true);
+      // Belt-and-braces vs .row-wrap's user-select:none — if the OS still
+      // managed to start a selection during the hold, drop it before the
+      // sheet opens so no handles linger behind it.
+      window.getSelection()?.removeAllRanges();
       onLongPress();
     }, PRESS_MS);
   };
