@@ -11,6 +11,7 @@ export interface PersonInput {
   email: string;
   channel: Channel;
   notes: string;
+  capacityLimit: number | null; // 011: max open delegations; null = no limit
 }
 
 export async function savePerson(
@@ -28,6 +29,8 @@ export async function savePerson(
       email: input.email.trim() || null,
       preferred_channel: input.channel,
       capability_notes: input.notes.trim(),
+      // Dave's own setting, not an AI guess — no correction logging.
+      capacity_limit: input.capacityLimit,
     };
     const db = supabaseServer();
     const before = id

@@ -29,6 +29,11 @@ export default function PersonForm({
   const [email, setEmail] = useState(person?.email ?? "");
   const [channel, setChannel] = useState<Channel>(person?.preferred_channel ?? "sms");
   const [notes, setNotes] = useState(person?.capability_notes ?? "");
+  // Routing junction stage 4: null = no limit (the default — adding someone
+  // never silently caps them). Stepper, not a number input: values are tiny,
+  // no mobile keyboard over the sheet, and "No limit" is a first-class
+  // endpoint below 1 instead of an awkward empty string.
+  const [capacity, setCapacity] = useState<number | null>(person?.capacity_limit ?? null);
 
   useEffect(() => {
     setName(person?.name ?? "");
@@ -38,7 +43,17 @@ export default function PersonForm({
     setEmail(person?.email ?? "");
     setChannel(person?.preferred_channel ?? "sms");
     setNotes(person?.capability_notes ?? "");
+    setCapacity(person?.capacity_limit ?? null);
   }, [person]);
+
+  const CAP_START = 5; // first + from "No limit" lands here
+  const CAP_MAX = 20;
+  const stepCapacity = (dir: 1 | -1) => {
+    setCapacity((c) => {
+      if (dir === 1) return c === null ? CAP_START : Math.min(CAP_MAX, c + 1);
+      return c === null || c <= 1 ? null : c - 1;
+    });
+  };
 
   // Slack is only offered as a channel when it's connected in Settings
   // (requirements §Communication channels).
@@ -137,6 +152,32 @@ export default function PersonForm({
         </div>
       </div>
       <div className="field">
+        <label>Capacity</label>
+        <div className="stepper">
+          <button
+            type="button"
+            className="pressable"
+            aria-label="Lower capacity"
+            disabled={capacity === null}
+            onClick={() => stepCapacity(-1)}
+          >
+            −
+          </button>
+          <span className="stepper-value">
+            {capacity === null ? "No limit" : `${capacity} open task${capacity === 1 ? "" : "s"} max`}
+          </span>
+          <button
+            type="button"
+            className="pressable"
+            aria-label="Raise capacity"
+            disabled={capacity === CAP_MAX}
+            onClick={() => stepCapacity(1)}
+          >
+            +
+          </button>
+        </div>
+      </div>
+      <div className="field">
         <label htmlFor="p-notes">Capability notes</label>
         <textarea
           id="p-notes"
@@ -172,6 +213,7 @@ export default function PersonForm({
               email,
               channel,
               notes,
+              capacityLimit: capacity,
             })
           }
         >
