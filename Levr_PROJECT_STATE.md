@@ -1,12 +1,18 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-27** — everything through the cron fix (`4cf70ba`) is pushed and
+> Last updated: **2026-08-28** — routing junction stages 1–5 COMPLETE, committed AND (after a
+> caught deploy gap — see Dev workflow) subtree-pushed + bundle-verified live. iOS long-press
+> text-selection fix shipped (`7ae2bf7`). Decisive-gate + reroute-on-reclassification fixes
+> shipped (`539efa9`) with a one-row backfill (the stale VA pick → Danny). Standing rule from
+> this session: **no stage is "done" until subtree-pushed and verified against the served
+> bundle** — a local commit alone is not shipped.
+>
+> Previous update 2026-08-27: everything through the cron fix (`4cf70ba`) pushed and
 > deploy-verified green (the Hobby-plan sub-daily cron was silently failing every deploy — fixed).
 > DB wiped to a clean slate at Dave's direction (Team kept: Danny/Yana/Andrie). Calendar week
-> view (5th nav item) built, migration 010 applied, live-tested, committed. Board row gestures
-> built + live-tested on top (uncommitted); **command box SHELVED by Dave's explicit reversal**
-> — gestures replace it.
+> view (5th nav item) built, migration 010 applied, live-tested, committed.
+> **Command box SHELVED by Dave's explicit reversal** — gestures replace it.
 
 ## What this project is
 
@@ -50,7 +56,7 @@ owner, and closing them out builds each person's delegation history on Team.
 | Tier 1 segmentation fix + `business_evidence` guard | ✅ Built, verified against the real API across multiple runs, not yet pushed. **Segmentation**: the first real test (a messy 8-concern capture) produced 1 entry instead of many — free-text JSON parsing plus a soft "don't split unless obviously separate" prompt bias was suppressing splits, with no raw-response logging to debug it from. Fixed via `classify_capture` forced through `tools`/`tool_choice` (no more `JSON.parse`-and-hope), a two-step schema where the model lists `concerns` before filling `chunks`, neutral "1 to a dozen" framing, and raw-response logging (`[classify] raw_response=…` — TEMPORARY, logs capture text, deliberately left in pending a decision to strip/gate it). `MAX_CHUNKS` raised 5→25 after live captures hit 11 and then 17 real concerns that got silently truncated at 8 and then 15; a `TRUNCATED` warning now logs the exact count and the full list of dropped concern labels if the cap is ever hit again. **business_evidence guard**: testing also found chunks guessing a business from nearby unrelated context in dense captures (e.g. real-estate postcard/cold-lead tasks tagged TC Dental Lab). Added a `business_evidence` field to the schema/prompt (a literal quote from the chunk's own text, or a team member named in the chunk) plus a `parseChunk` guard that only trusts `business` when the evidence is a real case-insensitive substring of the chunk's own text or an exact team-member-name match — closes a gap where an earlier presence-only version of the guard let fabricated justification sentences through unchecked. Verified over repeated runs of a 17-concern dense capture: previously-wrong chunks now come back null (model-side or guard-forced); previously-correct ones (Yana/zirconia, "tc dental" referral, Danny, second-dental-lab-location) still pass. `tsc --noEmit` clean throughout. **Committed `f82d39c`, pushed → GitHub `e8aaf29`.** |
 | Part 2 — immediate clarifying questions after capture | ✅ Built, live-tested through the real UI (three rounds incl. cap + fall-through tests), committed on top of the segmentation fixes. **A deliberate, Dave-approved exception to the "silently commit, never block" rule — documented in `docs/levr-requirements.md` §Interaction model (blockquote under rule 3); do NOT "fix" it back.** After a Home capture classifies, up to **3** tap-to-answer questions appear before navigating to Board: unresolved business → business chips + Skip; new mentioned name → "Add to Team?" / "Not now". Priority: people first, then business, oldest chunk first; 0 askable → straight to Board unchanged; 4th+ item and all skips keep their unresolved state and surface via the existing needs-a-look/Review-with-me path (verified live with a 7-askable capture: cap held, nothing silently dropped). Entries are already saved before any question renders — never-lose-a-thought untouched. Pieces: `/api/classify` returns additive `createdEntries` (id/summary/business_id/mentioned_people; quick-add ignores it); slim `setEntryBusiness` action in `app/board/actions.ts` (no correction log — null→value is a fill-in; Tier 2's changed-under-us guard already covers the race); `components/capture/CaptureQuestions.tsx` (new); queue-build + pre-`router.push` interception in `CaptureBox.tsx` (Board quick-add path untouched); Home passes the business roster; `.capture-q` styles on existing tokens/`.chip`. Answering Add reuses `addMentionedPerson` (person filed under the mentioning chunk's business, null-safe). **mentioned_people tightening (same session)**: first clean-capture regression test surfaced "the smith property lead" → a "add Smith to Team?" question — the prompt had no carve-out for names the task is ABOUT. Wording now excludes leads/customers/vendors/tenants/external parties, with the Smith example inline. Verified: Smith → `[]` + zero questions (MutationObserver-proof); "my new assistant jordan" still caught (no overcorrection); 8-concern capture regression-free (Chi/Stella surface, Danny/Yana filtered — the code-side roster filter in `parseChunk` absorbed a model wobble that listed them anyway). All test data from both rounds deleted (dry-run-then-verify), original early-session segmentation entries left per Dave. |
 | Calendar (5th nav item) — week view v1 | ✅ Built, migration 010 APPLIED via db:migrate, live-tested 2026-08-27 ("remind me to call the bank by friday" captured through the real UI → landed Friday Aug 28 as All-day; undated strip correctly held the two pre-migration entries with raw quotes; 5-item nav live). Committed same session. **Cosmetic items Dave hasn't ruled on yet**: Sleep renders as the first block on all 7 days (faithful, noisy — hide/collapse/leave?); "10–5:30" time format lacks am/pm; Church gets the "floats" tag though only its time (not day) is uncertain. **Deliberate nav change, Dave-approved 2026-08-27: bottom nav is now Home / Board / Calendar / Team / Settings** (noted in `docs/levr-requirements.md` §Screens — don't "restore" 4 items). Reference: `reference/levr-combined-prototype.html` (its Board row redesign is ON HOLD; its command box is scoped separately, approved, not built). Pieces: migration `010_deadline_at.sql` (**written, awaiting Dave's review before applying**) adds `entries.deadline_at timestamptz` + `deadline_all_day boolean` + partial index; `lib/deadline.ts` parses the verbatim `explicit_deadline` ONCE at classify-save time via chrono-node anchored to `captured_at` in America/Los_Angeles (never render-time — relative phrases must not drift), null for vague/event-relative text; `/calendar` route + `CalendarClient` (Sunday-start week, prev/next paging client-side from one fetch, Day toggle stubbed disabled per v1 scope); **undated-deadlines strip** (required v1) shows unparseable deadlines with their raw text; protected windows expanded by `frequency` — imprecise ones ("4-5x/week" Gym, time-less Midday check-in) render as dashed *tentative/floats* blocks across weekdays, never omitted, never faked precise (Dave picked option a). Parser verified against 11 phrasings ("by 2pm" → timed next occurrence; "before friday" → all-day; "next month"/"this quarter"/event-relative → undated). `tsc`/lint/full build clean. Calendar page 500s until 010 is applied (orders by `deadline_at`). |
-| Board row gestures (long-press assign + type-badge toggle) | 🔨 Built + live-tested (all 8 handoff test cases), uncommitted. Per `board-gestures-handoff.md` + `reference` mockup, Dave-confirmed in chat 2026-08-27: **(1) the command box is SHELVED by Dave's explicit reversal of his earlier approval — do not build it**; (2) this supersedes the on-hold pill/popover row redesign. Pieces: `SwipeRow` grew an optional `onLongPress` (480ms hold, `.pressed` scale feedback, drag >6px cancels the timer, a fired hold kills the in-flight drag and eats the release click, badge target excluded, contextmenu suppressed); `EntryRow` renders a tappable Your-20%/Delegate `type-badge` (hidden on done/null-leverage rows; **static for personal_project businesses** — same rule as the EntrySheet toggle); new `components/sheets/AssignSheet.tsx` in the existing Sheet system ("Hand off to"/"Reassign" title, current owner marked, AI-pick `suggest` treatment reused, someone-else input that matches an existing name before creating); `BoardClient.handleAssign` + `handleToggleType` both go through the existing `saveEntry` — delegation row, notification quiet-skips, correction logging, A1 create-on-the-fly all inherited, zero new write paths. Badge flip TO Delegate auto-opens the sheet (350ms); TO Your 20% doesn't. DoneDrawer rows: no gestures. Live-tested with disposable fixtures + Yana/Andrie only (no real sends, per Dave): assign ✓ reassign (owner marked, title switches) ✓ create-and-assign ✓ badge flip both ways incl. section move ✓ static badge inert ✓ drag-cancels-hold ✓ swipe-done ✓ swipe-delete ✓. All fixtures + Testperson + test corrections cleaned (dry-run-then-verify); Dave's 6 real entries and 7 real projects untouched. Lint: 6 pre-existing errors in touched files confirmed pre-existing at HEAD, none new. |
+| Board row gestures (long-press assign + type-badge toggle) | ✅ Committed (`f90d401` local / `bc863f4` on GitHub) and deployed. Per `board-gestures-handoff.md` + `reference` mockup, Dave-confirmed in chat 2026-08-27: **(1) the command box is SHELVED by Dave's explicit reversal of his earlier approval — do not build it**; (2) this supersedes the on-hold pill/popover row redesign. Pieces: `SwipeRow` grew an optional `onLongPress` (480ms hold, `.pressed` scale feedback, drag >6px cancels the timer, a fired hold kills the in-flight drag and eats the release click, badge target excluded, contextmenu suppressed); `EntryRow` renders a tappable Your-20%/Delegate `type-badge` (hidden on done/null-leverage rows; **static for personal_project businesses** — same rule as the EntrySheet toggle); new `components/sheets/AssignSheet.tsx` in the existing Sheet system ("Hand off to"/"Reassign" title, current owner marked, AI-pick `suggest` treatment reused, someone-else input that matches an existing name before creating); `BoardClient.handleAssign` + `handleToggleType` both go through the existing `saveEntry` — delegation row, notification quiet-skips, correction logging, A1 create-on-the-fly all inherited, zero new write paths. Badge flip TO Delegate auto-opens the sheet (350ms); TO Your 20% doesn't. DoneDrawer rows: no gestures. Live-tested with disposable fixtures + Yana/Andrie only (no real sends, per Dave): assign ✓ reassign (owner marked, title switches) ✓ create-and-assign ✓ badge flip both ways incl. section move ✓ static badge inert ✓ drag-cancels-hold ✓ swipe-done ✓ swipe-delete ✓. All fixtures + Testperson + test corrections cleaned (dry-run-then-verify); Dave's 6 real entries and 7 real projects untouched. Lint: 6 pre-existing errors in touched files confirmed pre-existing at HEAD, none new. |
 
 ## What was verified live (2026-08-25, real DB + real Haiku calls, test data cleaned up after)
 
@@ -112,6 +118,16 @@ owner, and closing them out builds each person's delegation history on Team.
 - GitHub: `https://github.com/mqd882003-ai/Levr` holds ONLY the levr/ subtree (split history, pushed
   2026-08-25 after a full-history secret scan) — NOT the whole D:\Claude workspace. To publish new commits:
   `git subtree push --prefix=levr origin main` (run from D:\Claude; `origin` there points at Levr.git).
+- ⚠ **STANDING RULE (Dave, 2026-08-28)**: no stage is "done" when merely committed locally. Done =
+  subtree push has run + remote tip's tree verified identical to local `main:levr` + the live
+  deployment at levr-six.vercel.app proven to serve the new code (grep the served JS/CSS chunks for
+  marker strings that exist only in the new commits). Born from a real incident: all 5 routing-junction
+  commits sat local-only while prod served pre-stage-1 code — a plain `git push` of D:\Claude does
+  NOTHING for the Levr repo, and the subtree push is easy to forget. Remote hashes NEVER match local
+  ones (subtree split; empty merge-base is by design) — compare trees or commit subjects, not hashes.
+- ⚠ **Vercel visibility**: levr-six lives on Dave's separate Vercel account; the CLI on this machine
+  is scoped to `true-home-acquisitions` only and cannot see it. Verify deploys via the bundle-grep
+  method above or Dave's dashboard — never via the CLI here.
 
 ## Phase 2 specifics (2026-08-25)
 
@@ -193,6 +209,64 @@ owner, and closing them out builds each person's delegation history on Team.
   + dead nav on the phone. Fixed via `allowedDevOrigins: ["192.168.0.229"]` in next.config.ts — update
   the IP if the PC's DHCP lease changes.
 
+## Routing junction (2026-08-27, stages 1–5 complete; routing-junction-handoff.md)
+
+- **One place ranks owners**: `lib/routing.ts` (pure core — `rankOwners`, `recommendFromSnapshot`,
+  `topPick`) + `lib/routingServer.ts` (DB loader — `loadRoutingSnapshot`, `recommendOwner`; split so
+  the service-role client never reaches the browser bundle, same pattern as trust.ts). LLMs no
+  longer pick owners: `suggested_owner_id` + `recent_delegations` were removed from Tier 1/Tier 2
+  prompts (A/B verified, 9 runs/variant, no is_leverage shift). `lib/routing.ts` is the ONLY
+  writer-of-record logic for `entries.suggested_person_id` (persisted by Tier 1 classify, Tier 2
+  recompute, and `rerouteSuggestion` — nothing else).
+- **Score model**: earned trust window first (0.5–0.9 by landed ratio, floor 3 / window 5 via
+  trust.ts), declared rating fallback (strong .6 / capable .45 / learning .25 / not_ready .05),
+  unknown baseline .2; same-business +0.15, recent bandwidth chip −0.2; **flagged (.15) deliberately
+  below unknown (.2)** — concrete failure evidence loses to absence of evidence, Dave-confirmed.
+  Capacity partition first: at/over `people.capacity_limit` always ranks below everyone with room
+  but stays listed ("at capacity"). Migration **011**: capacity_limit (null = no limit),
+  `routing_recommendations`, `person_category_ratings` (declared/earned unique per source).
+- **Stage 3** AssignSheet renders the ranked list (capacity + one reason per row, AI-pick badge on
+  the top pick) + explore nudge (declared capable/strong, no earned window, under capacity, not the
+  top pick) as a dashed aside — Try assigns, Not now is sheet-local. **Stage 4** PersonCard shows
+  "N/M active" + fill bar (amber; red at/over limit; fraction never clamped); PersonForm 44px
+  capacity stepper ("No limit" below 1, then 5–20). **Stage 5** override logging: one resolved
+  `routing_recommendations` row per decision (recommended vs picked, score, reasons jsonb,
+  via:"nudge"), badge-shown-only; reassigns and EntrySheet assignments unlogged by design.
+- **Tests**: `npm test` (tsx + node:test) → `tests/routing.test.ts`, 25 passing.
+- **Milestone (Dave)**: the stage-5 live test was the first end-to-end proof of the whole chain —
+  declared rating → junction → Tier 1's real suggested_person_id. His verification bar, now the
+  standard for every handoff: revert via the real UI (not DB edits), verify both states over REST,
+  no fake data writes; non-UI tables may use disclosed disposable REST fixtures deleted after.
+
+## Stale-pick trace + fixes (2026-08-28, commits `10f1f48`/`98940e0` → GitHub `7ae2bf7`/`539efa9`)
+
+- **iOS long-press bug**: holding a board row for AssignSheet also triggered iOS's native
+  text-selection loupe/handles — SwipeRow's `contextmenu` preventDefault never covered the separate
+  selection gesture, and the only `user-select:none` in the app was on `.type-badge`. Fix: `.row-wrap`
+  gets `user-select:none` + `-webkit-user-select:none` + `-webkit-touch-callout:none`, plus
+  `removeAllRanges()` when the hold fires. Un-reproducible in desktop/emulated browsers — iOS only.
+- **Stale-badge trace** (started from Dave's "AI pick on a business-None entry" report): EntrySheet's
+  badge reads the PERSISTED `suggested_person_id`; AssignSheet computes live — the two can disagree,
+  and that divergence is itself the cleanest stored-vs-live test. Three compounding causes found:
+  (1) with business+category both null every candidate tied at the .2 baseline and the "pick" was
+  the alphabetical tie-break wearing a confident badge; (2) `setEntryBusiness` (Home question
+  fill-in) set business without rerouting, so the null-business pick survived; (3) the reported
+  entry's VA pick was computed while a disposable stage-5 declared-rating fixture still existed —
+  after cleanup it was unreproducible from live data.
+- **Fixes shipped**: `decisive` flag on `RoutingResult` — false when the top spot fell to the name
+  tie-break or a lone candidate has zero positive signal; `topPick` returns null on non-decisive
+  results (nothing persists, EntrySheet badge disappears via the stored null, stage-5 logging goes
+  silent with it), AssignSheet gates its badge on the flag. `rerouteSuggestion(entryId)` in
+  routingServer.ts recomputes the stored pick from current classification; called from ALL four
+  reclassification paths (`setEntryBusiness`, `applyReviewSuggestion` is_leverage + business,
+  `saveEntry` on classificationChanged — after the delegation reconcile so capacity counts are
+  current); fresh pick flows back through patches into BoardClient state. Never throws.
+- **Backfill executed** (Dave-approved, script deleted after): 1 open unassigned delegated entry —
+  the reported one — rerouted VA → Danny (not nulled: business was filled by then, so same-business
+  is real signal and decisive). Live-verified: real `/api/classify` capture with no business
+  persisted null in both tiers; the real "Which business?" UI answer set the business AND rerouted
+  to Danny over REST. Test entries + checklist rows deleted, verified gone.
+
 ## Delegation Evolution specifics (2026-08-25 late night)
 
 - **Schema (003)**: `categories` table (8-item starter vocabulary + `proposed` status),
@@ -232,3 +306,13 @@ owner, and closing them out builds each person's delegation history on Team.
    verify delivery/wording on the first real confirm-first assignment.
 6. **Auto-notes toggle**: still OFF (deliberate phase-in) — Dave flips it in Settings when ready.
 7. **Placeholder project names**: Haiku once emitted a literal `<UNKNOWN>` as a chunk's `project` and `resolveProjectId` faithfully created a project row named `<UNKNOWN>` — `parseChunk` accepts any non-empty string as a project name; needs a guard against placeholder-looking names (junk row from testing already deleted).
+8. **Routing junction deferred backlog** (from the stage-5 handoff, each its own stage later):
+   declared-ratings add-time UI (nothing writes `person_category_ratings` yet); EntrySheet old
+   owner picker alignment with the junction (its badge is now honest via the decisive gate, but it
+   still shows plain pills — no reasons/capacity/nudge — and its assignments aren't override-logged);
+   "shown-but-not-chosen" logging gap (revisit with real usage); CPA-split `is_leverage` ambiguity
+   ("schedule meeting about tax strategy" splits ~50/50 under both prompts — pre-existing);
+   advisory-persona wiring + weekly Sonnet audit + 20/80 self-check (separate handoffs).
+9. **Pre-existing lint debt**: react-hooks/set-state-in-effect — BoardClient (3) + PersonForm (1).
+10. **iOS long-press fix on-device confirmation**: `7ae2bf7` deployed + bundle-verified; Dave's
+    real-iPhone check (no blue tint, no selection pin on row hold) still pending.
