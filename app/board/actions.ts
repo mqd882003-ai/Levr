@@ -3,6 +3,7 @@
 import { after } from "next/server";
 import { categorizeDelegation, synthesizeNotes } from "@/lib/evolve";
 import { notifyAssignment } from "@/lib/notify";
+import type { RecommendationReasons } from "@/lib/routing";
 import { supabaseServer } from "@/lib/supabase/server";
 import type {
   ChecklistItem,
@@ -524,6 +525,47 @@ async function removeMentionedName(entryId: string, name: string): Promise<void>
     .maybeSingle<Pick<Entry, "mentioned_people">>();
   const remaining = (current.data?.mentioned_people ?? []).filter((n) => n !== name);
   await db.from("entries").update({ mentioned_people: remaining }).eq("id", entryId);
+}
+
+// Routing junction stage 5: confirm-or-override becomes a signal — the
+// routing-equivalent of the corrections table. One complete row per DECISION
+// (created_at = resolved_at, accepted already set): written only when the
+// AI-pick badge was actually on screen and Dave then assigned someone in
+// AssignSheet. Never written at compute time — resolved-only logging is a
+// deliberate v1 simplification (gap: "shown but sheet closed" isn't
+// captured). Reassigns and EntrySheet's old picker log nothing, by design.
+// Telemetry, so it must never block or fail an assignment: errors log and
+// die here.
+export interface RoutingDecisionInput {
+  entryId: string;
+  recommendedPersonId: string; // the badged top pick that was displayed
+  score: number;
+  reasons: RecommendationReasons; // verbatim what the junction believed
+  pickedPersonId: string; // who Dave actually assigned
+  viaNudge: boolean; // picked through the explore nudge's "Try" button
+}
+
+export async function logRoutingDecision(input: RoutingDecisionInput): Promise<void> {
+  try {
+    const accepted = input.pickedPersonId === input.recommendedPersonId;
+    // via:"nudge" inside reasons distinguishes "took the AI's own exploration
+    // invite" from a free override — without it the explore/exploit signal
+    // would be unreadable in the data. jsonb, so no schema change.
+    const reasons = input.viaNudge ? { ...input.reasons, via: "nudge" } : input.reasons;
+    const db = supabaseServer();
+    const { error } = await db.from("routing_recommendations").insert({
+      entry_id: input.entryId,
+      recommended_person_id: input.recommendedPersonId,
+      score: input.score,
+      reasons,
+      accepted,
+      overridden_to_person_id: accepted ? null : input.pickedPersonId,
+      resolved_at: new Date().toISOString(),
+    });
+    if (error) console.error("routing decision log failed:", error.message);
+  } catch (err) {
+    console.error("routing decision log failed:", err);
+  }
 }
 
 // Home question-queue answer (requirements §Interaction model rule-3

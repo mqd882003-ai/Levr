@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { recommendFromSnapshot, type RoutingSnapshot } from "@/lib/routing";
+import { recommendFromSnapshot, topPick, type RoutingSnapshot } from "@/lib/routing";
 import {
   applyReviewSuggestion,
   closeoutDelegation,
   deleteEntry,
+  logRoutingDecision,
   parkEntry,
   saveEntry,
   toggleDone,
@@ -235,9 +236,18 @@ export default function BoardClient({
   // row, notification with quiet-skips, correction logging, A1 create-on-
   // the-fly. Assigning someone is inherently delegating, so isLeverage
   // always lands false here.
-  const handleAssign = async (pick: { ownerId?: string; newOwnerName?: string }) => {
+  const handleAssign = async (pick: {
+    ownerId?: string;
+    newOwnerName?: string;
+    viaNudge?: boolean;
+  }) => {
     if (!assigning || saving) return;
     const entry = assigning;
+    // Stage 5: capture what was actually on screen BEFORE the sheet closes —
+    // a decision is only loggable when the AI-pick badge was displayed
+    // (fresh assignment with an under-capacity top pick). Reassigns log
+    // nothing by design.
+    const shownRec = !entry.ownerId && assignRouting ? topPick(assignRouting) : null;
     setSaving(true);
     const res = await saveEntry({
       id: entry.id,
@@ -260,6 +270,18 @@ export default function BoardClient({
       projectId: res.projectId ?? null,
       projectName: res.projectName ?? null,
     });
+    // Fire-and-forget telemetry — the action swallows its own failures, and
+    // res.ownerId covers the typed-name path (newly created person's id).
+    if (shownRec && res.ownerId) {
+      void logRoutingDecision({
+        entryId: entry.id,
+        recommendedPersonId: shownRec.personId,
+        score: shownRec.score,
+        reasons: shownRec.reasons,
+        pickedPersonId: res.ownerId,
+        viaNudge: pick.viaNudge ?? false,
+      });
+    }
     setAssigning(null);
     if (res.createdPerson) setPeopleList((prev) => [...prev, res.createdPerson!]);
     if (res.assignedName) {
@@ -570,7 +592,7 @@ export default function BoardClient({
             people={peopleList}
             routing={assignRouting}
             saving={saving}
-            onPick={(ownerId) => void handleAssign({ ownerId })}
+            onPick={(ownerId, opts) => void handleAssign({ ownerId, viaNudge: opts?.viaNudge })}
             onAddNew={(name) => void handleAssign({ newOwnerName: name })}
             onClose={() => setAssigning(null)}
           />

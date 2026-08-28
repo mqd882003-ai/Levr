@@ -56,7 +56,9 @@ export default function AssignSheet({
   people: Person[];
   routing?: RoutingResult | null;
   saving: boolean;
-  onPick: (ownerId: string) => void;
+  // viaNudge tells the caller the pick came through the explore nudge's
+  // "Try" button — same assignment, different signal for override logging.
+  onPick: (ownerId: string, opts?: { viaNudge?: boolean }) => void;
   onAddNew: (name: string) => void;
   onClose: () => void;
 }) {
@@ -153,7 +155,7 @@ export default function AssignSheet({
               type="button"
               className="try pressable"
               disabled={saving}
-              onClick={() => onPick(nudge.personId)}
+              onClick={() => onPick(nudge.personId, { viaNudge: true })}
             >
               Try {nudgePerson.name}
             </button>
