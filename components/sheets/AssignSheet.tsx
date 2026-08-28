@@ -106,7 +106,11 @@ export default function AssignSheet({
                 key={p.id}
                 type="button"
                 className={`pressable${entry.ownerId === p.id ? " on" : ""}${
-                  i === 0 && !entry.ownerId && !rec.reasons.capacity_full ? " suggest" : ""
+                  // Badge only on a decisive result — an alphabetical
+                  // tie-break must not wear an AI-pick badge (2026-08-28).
+                  i === 0 && !entry.ownerId && !rec.reasons.capacity_full && routing?.decisive
+                    ? " suggest"
+                    : ""
                 }`}
                 disabled={saving}
                 onClick={() => onPick(p.id)}

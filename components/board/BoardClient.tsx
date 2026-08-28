@@ -212,6 +212,10 @@ export default function BoardClient({
       isLeverage: input.isLeverage,
       ownerId: res.ownerId ?? null,
       openDelegationId: res.openDelegationId ?? null,
+      // Absent = no reroute happened; the stored pick is unchanged.
+      ...(res.suggestedPersonId !== undefined
+        ? { suggestedPersonId: res.suggestedPersonId }
+        : {}),
     });
     setEditing(null);
     if (res.createdPerson) {
@@ -269,6 +273,9 @@ export default function BoardClient({
       openDelegationId: res.openDelegationId ?? null,
       projectId: res.projectId ?? null,
       projectName: res.projectName ?? null,
+      ...(res.suggestedPersonId !== undefined
+        ? { suggestedPersonId: res.suggestedPersonId }
+        : {}),
     });
     // Fire-and-forget telemetry — the action swallows its own failures, and
     // res.ownerId covers the typed-name path (newly created person's id).
@@ -323,6 +330,9 @@ export default function BoardClient({
       isLeverage: toLev,
       ownerId: res.ownerId ?? null,
       openDelegationId: res.openDelegationId ?? null,
+      ...(res.suggestedPersonId !== undefined
+        ? { suggestedPersonId: res.suggestedPersonId }
+        : {}),
     };
     patchEntry(entry.id, patch);
     if (toLev) {
@@ -379,6 +389,9 @@ export default function BoardClient({
         : {}),
       ...(res.patch.projectId !== undefined
         ? { projectId: res.patch.projectId, projectName: res.patch.projectName ?? null }
+        : {}),
+      ...(res.patch.suggestedPersonId !== undefined
+        ? { suggestedPersonId: res.patch.suggestedPersonId }
         : {}),
     });
     showToast("Applied", "good");

@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { categorizeDelegation, synthesizeNotes } from "@/lib/evolve";
 import { notifyAssignment } from "@/lib/notify";
 import type { RecommendationReasons } from "@/lib/routing";
+import { rerouteSuggestion } from "@/lib/routingServer";
 import { supabaseServer } from "@/lib/supabase/server";
 import type {
   ChecklistItem,
@@ -60,6 +61,9 @@ export interface SaveEntryResult {
   openDelegationId?: string | null;
   assignedName?: string | null; // set only when a NEW assignment was created
   createdPerson?: Person; // A1: the minimal person row created inline
+  // Present only when a classification change triggered a reroute AND the
+  // reroute succeeded — absent means "leave the client's value alone".
+  suggestedPersonId?: string | null;
   // Outcome of the single assignment message (only on new assignments).
   notification?: {
     sent: boolean;
@@ -236,6 +240,15 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
       await logCorrections(before, changes);
     }
 
+    // A classification change invalidates the stored routing pick — recompute
+    // from what the entry now says instead of leaving the old one standing.
+    // After the delegation reconcile on purpose, so capacity counts are
+    // current when the junction re-scores.
+    let suggestedPersonId: string | null | undefined;
+    if (classificationChanged) {
+      suggestedPersonId = (await rerouteSuggestion(input.id))?.suggestion;
+    }
+
     return {
       ok: true,
       projectId,
@@ -245,6 +258,7 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
       assignedName,
       createdPerson,
       notification,
+      suggestedPersonId,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Save failed" };
@@ -446,6 +460,7 @@ export async function applyReviewSuggestion(
     businessName?: string | null;
     projectId?: string | null;
     projectName?: string | null;
+    suggestedPersonId?: string | null; // present only when a reroute succeeded
   };
 }> {
   try {
@@ -457,7 +472,11 @@ export async function applyReviewSuggestion(
         .update({ is_leverage: isLeverage, tier2_status: null, tier2_reason: null })
         .eq("id", entryId);
       if (res.error) throw new Error(res.error.message);
-      return { ok: true, patch: { isLeverage } };
+      const reroute = await rerouteSuggestion(entryId);
+      return {
+        ok: true,
+        patch: { isLeverage, ...(reroute ? { suggestedPersonId: reroute.suggestion } : {}) },
+      };
     }
     if (field === "business") {
       const biz = await db
@@ -471,7 +490,15 @@ export async function applyReviewSuggestion(
         .update({ business_id: biz.data.id, tier2_status: null, tier2_reason: null })
         .eq("id", entryId);
       if (res.error) throw new Error(res.error.message);
-      return { ok: true, patch: { businessId: biz.data.id, businessName: biz.data.name } };
+      const reroute = await rerouteSuggestion(entryId);
+      return {
+        ok: true,
+        patch: {
+          businessId: biz.data.id,
+          businessName: biz.data.name,
+          ...(reroute ? { suggestedPersonId: reroute.suggestion } : {}),
+        },
+      };
     }
     // project: match existing (case-insensitive) or create
     const existing = await db
@@ -587,6 +614,9 @@ export async function setEntryBusiness(
       .maybeSingle<{ id: string }>();
     if (updated.error) throw new Error(updated.error.message);
     if (!updated.data) return { ok: false, error: "Entry not found" };
+    // The fill-in changed what routing scores on — the pick computed against
+    // the empty business must not survive it (2026-08-28 stale-badge trace).
+    await rerouteSuggestion(entryId);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Update failed" };

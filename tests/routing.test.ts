@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { rankOwners, type RoutingInput } from "@/lib/routing";
+import { rankOwners, topPick, type RoutingInput } from "@/lib/routing";
 import type { Person, TrustEvidence } from "@/lib/types";
 
 // Fixture-driven tests for the pure routing core (stage 1 of
@@ -363,5 +363,73 @@ describe("rankOwners — edges", () => {
       r2.ranked.map((r) => r.personId),
     );
     assert.equal(r1.ranked[0].personId, "a");
+  });
+});
+
+describe("rankOwners — decisive (badge/persist gate, 2026-08-28)", () => {
+  it("no business, no category: pure alphabetical tie-break is not decisive and topPick is null", () => {
+    const a = person("a", "Al", null, null);
+    const b = person("b", "Bea", null, null);
+    const result = rankOwners(input({ businessId: null, category: null, people: [b, a] }));
+    assert.equal(result.ranked[0].personId, "a"); // still a usable picker order
+    assert.equal(result.decisive, false);
+    assert.equal(topPick(result), null);
+  });
+
+  it("a full tie stays non-decisive even when everyone shares the business bonus", () => {
+    const a = person("a", "Al", THA, null);
+    const b = person("b", "Bea", THA, null);
+    const result = rankOwners(input({ category: null, people: [a, b] }));
+    assert.equal(result.ranked[0].reasons.same_business, true);
+    assert.equal(result.decisive, false);
+    assert.equal(topPick(result), null);
+  });
+
+  it("same-business separation is decisive", () => {
+    const local = person("local", "Local", THA, null);
+    const remote = person("remote", "Remote", DENTAL, null);
+    const result = rankOwners(input({ category: null, people: [remote, local] }));
+    assert.equal(result.decisive, true);
+    assert.equal(topPick(result)?.personId, "local");
+  });
+
+  it("a declared rating separation is decisive", () => {
+    const rated = person("rated", "Rated", THA, null);
+    const plain = person("plain", "Plain", THA, null);
+    const result = rankOwners(
+      input({
+        people: [plain, rated],
+        ratings: [{ person_id: "rated", level: "capable", source: "declared" }],
+      }),
+    );
+    assert.equal(result.decisive, true);
+    assert.equal(topPick(result)?.personId, "rated");
+  });
+
+  it("a lone candidate with zero signal is not decisive; with signal it is", () => {
+    const solo = person("solo", "Solo", null, null);
+    const bare = rankOwners(input({ businessId: null, category: null, people: [solo] }));
+    assert.equal(bare.decisive, false);
+    assert.equal(topPick(bare), null);
+
+    const localSolo = person("solo", "Solo", THA, null);
+    const withSignal = rankOwners(input({ category: null, people: [localSolo] }));
+    assert.equal(withSignal.decisive, true);
+    assert.equal(topPick(withSignal)?.personId, "solo");
+  });
+
+  it("the capacity partition alone separates decisively (only one with room)", () => {
+    const full = person("full", "Al", null, 3); // alphabetically first, but full
+    const free = person("free", "Bea", null, null);
+    const result = rankOwners(
+      input({
+        businessId: null,
+        category: null,
+        people: [full, free],
+        activeCounts: { full: 3 },
+      }),
+    );
+    assert.equal(result.decisive, true);
+    assert.equal(topPick(result)?.personId, "free");
   });
 });

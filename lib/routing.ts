@@ -78,6 +78,12 @@ export interface RoutingResult {
   // yet, under capacity, not already the top pick. An invitation for the UI
   // to phrase, never a replacement for the conservative top pick.
   nudge: OwnerRecommendation | null;
+  // False when the top spot was settled by the alphabetical name tie-break
+  // (or a lone candidate carries no positive signal at all). The ranking is
+  // still a usable picker order, but it is not a recommendation: no AI-pick
+  // badge, and topPick refuses to surface or persist it (2026-08-28 decision
+  // — a confident badge must never dress up an alphabetical accident).
+  decisive: boolean;
 }
 
 // Rating rows pre-scoped to the entry's category, so the pure core never
@@ -189,6 +195,21 @@ export function rankOwners(input: RoutingInput): RoutingResult {
   const ranked = scored.map((s) => s.rec);
   const topId = ranked[0]?.personId ?? null;
 
+  // Decisive = the winner strictly beat the runner-up on a real comparator
+  // leg (capacity partition, score, same-business) — if all three tie, the
+  // order above fell through to localeCompare and means nothing. A lone
+  // candidate needs some positive signal (category fit or same business)
+  // before a bare unknown baseline reads as a pick.
+  const top = scored[0] ?? null;
+  const runner = scored[1] ?? null;
+  const decisive = top
+    ? runner
+      ? top.rec.reasons.capacity_full !== runner.rec.reasons.capacity_full ||
+        top.rec.score !== runner.rec.score ||
+        top.rec.reasons.same_business !== runner.rec.reasons.same_business
+      : top.rec.reasons.category_fit || top.rec.reasons.same_business
+    : false;
+
   // Never nudge someone at/over their limit, regardless of category fit
   // (decision 2026-08-27). "Unproven" = no earned trust window in this
   // category; "plausible" = Dave declared them capable or strong at add-time.
@@ -215,7 +236,7 @@ export function rankOwners(input: RoutingInput): RoutingResult {
     nudge = candidates[0]?.rec ?? null;
   }
 
-  return { entryId: input.entryId, ranked, nudge };
+  return { entryId: input.entryId, ranked, nudge, decisive };
 }
 
 // One load of every signal the junction reads, reusable across the chunks of
@@ -259,8 +280,9 @@ export function recommendFromSnapshot(
 }
 
 // The single id worth persisting to entries.suggested_person_id: the top pick,
-// unless everyone is at capacity — a full plate is never "the suggestion".
+// unless everyone is at capacity — a full plate is never "the suggestion" —
+// or the result is non-decisive — an alphabetical tie-break is not one either.
 export function topPick(result: RoutingResult): OwnerRecommendation | null {
   const first = result.ranked[0];
-  return first && !first.reasons.capacity_full ? first : null;
+  return first && !first.reasons.capacity_full && result.decisive ? first : null;
 }

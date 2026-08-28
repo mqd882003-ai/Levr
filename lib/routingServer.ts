@@ -1,6 +1,6 @@
-import { recommendFromSnapshot, type RoutingResult, type RoutingSnapshot } from "@/lib/routing";
+import { recommendFromSnapshot, topPick, type RoutingResult, type RoutingSnapshot } from "@/lib/routing";
 import { supabaseServer } from "@/lib/supabase/server";
-import type { Category, Delegation, Person, PersonCategoryRating, TrustEvidence } from "@/lib/types";
+import type { Category, Delegation, Entry, Person, PersonCategoryRating, TrustEvidence } from "@/lib/types";
 
 // Server half of the routing junction: loads the signals lib/routing.ts ranks
 // from. Split from the pure core (same pattern as trust.ts) so client
@@ -65,4 +65,38 @@ export async function recommendOwner(
   category: string | null,
 ): Promise<RoutingResult> {
   return recommendFromSnapshot(await loadRoutingSnapshot(), entryId, businessId, category);
+}
+
+// Recompute entries.suggested_person_id from the entry's CURRENT
+// classification. Every user edit that changes what routing scores on
+// (business fill-in, correction, Keep↔Delegate flip) calls this so a stale
+// pick never outlives the classification it was computed from (2026-08-28 —
+// the setEntryBusiness gap). Keeps store null; non-decisive results store
+// null via topPick. Never throws: a failed reroute must not fail the user's
+// edit — returns null and the stale pick just survives until the next touch.
+export async function rerouteSuggestion(
+  entryId: string,
+): Promise<{ suggestion: string | null } | null> {
+  try {
+    const db = supabaseServer();
+    const res = await db
+      .from("entries")
+      .select("id, business_id, category, is_leverage")
+      .eq("id", entryId)
+      .maybeSingle<Pick<Entry, "id" | "business_id" | "category" | "is_leverage">>();
+    if (!res.data) return null;
+    const suggestion =
+      res.data.is_leverage === false
+        ? (topPick(await recommendOwner(entryId, res.data.business_id, res.data.category))
+            ?.personId ?? null)
+        : null;
+    const updated = await db
+      .from("entries")
+      .update({ suggested_person_id: suggestion })
+      .eq("id", entryId);
+    if (updated.error) return null;
+    return { suggestion };
+  } catch {
+    return null;
+  }
 }
