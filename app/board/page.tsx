@@ -1,4 +1,5 @@
 import BoardClient from "@/components/board/BoardClient";
+import { toBoardEntries } from "@/lib/boardEntries";
 import type { RoutingSnapshot } from "@/lib/routing";
 import { supabaseConfigured, supabaseServer } from "@/lib/supabase/server";
 import type {
@@ -83,40 +84,13 @@ export default async function BoardPage({
   const businessName = new Map(businesses.map((b) => [b.id, b.name]));
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
 
-  const board: BoardEntry[] = entries.map((e) => {
-    // Delegations are sorted newest-first: the first match is the current or
-    // most recent owner; only an unresolved one is "open" (assignable state).
-    const latest = delegations.find((d) => d.entry_id === e.id) ?? null;
-    const open = latest && !latest.resolved_at ? latest : null;
-    return {
-      id: e.id,
-      text: e.text,
-      summary: e.summary ?? e.text,
-      businessId: e.business_id,
-      businessName: e.business_id ? (businessName.get(e.business_id) ?? null) : null,
-      projectId: e.project_id,
-      projectName: e.project_id ? (projectName.get(e.project_id) ?? null) : null,
-      isLeverage: e.is_leverage,
-      done: e.status === "done",
-      suggestedPersonId: e.suggested_person_id,
-      capturedAt: e.captured_at,
-      ownerId: latest?.person_id ?? null,
-      openDelegationId: open?.id ?? null,
-      tier2Status: e.tier2_status,
-      tier2Reason: e.tier2_reason,
-      checklist: checklistItems
-        .filter((c) => c.entry_id === e.id)
-        .map((c) => ({ id: c.id, text: c.text, done: c.done })),
-      category: e.category,
-      parkedUntil: e.parked_until,
-      mentionedPeople: e.mentioned_people,
-      captureIntent: e.capture_intent ?? "task",
-      intentStatus: e.intent_status,
-      intentPersonId: e.intent_person_id,
-      intentDelegationId: e.intent_delegation_id,
-      intentPayload: e.intent_payload,
-    };
-  });
+  const board: BoardEntry[] = toBoardEntries(
+    entries,
+    delegations,
+    checklistItems,
+    businessName,
+    projectName,
+  );
 
   // A3: slim resolved rows for the assignment sheet's per-category trust read.
   const evidence: TrustEvidence[] = delegations

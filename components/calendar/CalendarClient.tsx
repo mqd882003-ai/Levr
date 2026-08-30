@@ -1,7 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { Entry, ProtectedWindow } from "@/lib/types";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  closeoutDelegation,
+  deleteEntry,
+  parkEntry,
+  saveEntry,
+  toggleDone,
+} from "@/app/board/actions";
+import Sheet from "@/components/sheets/Sheet";
+import CloseoutSheet, { type CloseoutTarget } from "@/components/sheets/CloseoutSheet";
+import EntrySheet, { type EntrySheetSave } from "@/components/sheets/EntrySheet";
+import Toast, { type ToastState } from "@/components/ui/Toast";
+import type {
+  BoardEntry,
+  Business,
+  Diagnosis,
+  Outcome,
+  Person,
+  ProjectType,
+  ProtectedWindow,
+  TrustEvidence,
+  Verdict,
+} from "@/lib/types";
 
 // Week view per reference/levr-combined-prototype.html. Three block kinds:
 // - deadline (timed or all-day): entries placed on their parsed deadline_at day
@@ -11,6 +32,9 @@ import type { Entry, ProtectedWindow } from "@/lib/types";
 //   days, styled distinctly, never omitted and never faked as precise.
 // Entries whose deadline text couldn't parse to a date live in the undated
 // strip up top — visible, just not pinned to a day the data doesn't support.
+//
+// calendar-phase1-handoff §1: tapping a deadline block opens the same
+// EntrySheet Board uses — no parallel edit UI.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKDAY_NAMES = [
@@ -66,38 +90,61 @@ function windowTime(w: ProtectedWindow): string {
   return `${fmt(w.start)}–${fmt(w.end)}`;
 }
 
-function deadlineTime(e: Entry): string {
-  if (e.deadline_all_day || !e.deadline_at) return "All day";
-  return new Date(e.deadline_at)
+function deadlineTime(e: BoardEntry): string {
+  if (e.deadlineAllDay || !e.deadlineAt) return "All day";
+  return new Date(e.deadlineAt)
     .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     .replace(":00", "");
 }
 
 export default function CalendarClient({
-  entries,
+  entries: initialEntries,
   windows,
-  businessNames,
+  businesses,
+  businessProjectType,
+  people,
+  evidence,
 }: {
-  entries: Entry[];
+  entries: BoardEntry[];
   windows: ProtectedWindow[];
-  businessNames: Record<string, string>;
+  businesses: Business[];
+  businessProjectType: Record<string, ProjectType>;
+  people: Person[];
+  evidence: TrustEvidence[];
 }) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [entries, setEntries] = useState(initialEntries);
+  const [peopleList, setPeopleList] = useState(people);
+  const [editing, setEditing] = useState<BoardEntry | null>(null);
+  const [closeout, setCloseout] = useState<CloseoutTarget | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const showToast = useCallback((msg: string, kind?: ToastState["kind"]) => {
+    setToast({ msg, kind, key: Date.now() });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  }, []);
+
+  const patchEntry = (id: string, patch: Partial<BoardEntry>) =>
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+
   const today = new Date();
   const weekStart = new Date(startOfWeek(today).getTime() + weekOffset * 7 * DAY_MS);
 
-  const undated = useMemo(() => entries.filter((e) => !e.deadline_at), [entries]);
-  const dated = useMemo(() => entries.filter((e) => e.deadline_at), [entries]);
+  const undated = useMemo(() => entries.filter((e) => !e.deadlineAt), [entries]);
+  const dated = useMemo(() => entries.filter((e) => e.deadlineAt), [entries]);
 
   const expandedWindows = useMemo(() => windows.map((w) => ({ w, exp: expandWindow(w) })), [windows]);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(weekStart.getTime() + i * DAY_MS);
     const dayEntries = dated
-      .filter((e) => sameDay(new Date(e.deadline_at!), date))
+      .filter((e) => sameDay(new Date(e.deadlineAt!), date))
       .sort((a, b) => {
-        if (a.deadline_all_day !== b.deadline_all_day) return a.deadline_all_day ? 1 : -1;
-        return a.deadline_at!.localeCompare(b.deadline_at!);
+        if (a.deadlineAllDay !== b.deadlineAllDay) return a.deadlineAllDay ? 1 : -1;
+        return a.deadlineAt!.localeCompare(b.deadlineAt!);
       });
     const dayWindows: DayWindow[] = expandedWindows
       .filter(({ exp }) => exp.days.includes(date.getDay()))
@@ -106,6 +153,106 @@ export default function CalendarClient({
   });
 
   const weekLabel = weekStart.toLocaleDateString([], { month: "short", day: "numeric" });
+
+  const handleToggleDone = async (entry: BoardEntry) => {
+    patchEntry(entry.id, { done: true });
+    const res = await toggleDone(entry.id, true);
+    if (!res.ok) {
+      patchEntry(entry.id, { done: false });
+      showToast("Couldn't save that — try again", "bad");
+      return;
+    }
+    if (res.closeout) setCloseout(res.closeout);
+  };
+
+  const handleSave = async (input: EntrySheetSave) => {
+    if (!editing) return;
+    setSaving(true);
+    const res = await saveEntry({ id: editing.id, ...input });
+    setSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Save failed", "bad");
+      return;
+    }
+    patchEntry(editing.id, {
+      summary: input.summary,
+      businessId: input.businessId,
+      businessName: businesses.find((b) => b.id === input.businessId)?.name ?? null,
+      projectId: res.projectId ?? null,
+      projectName: res.projectName ?? null,
+      isLeverage: input.isLeverage,
+      ownerId: res.ownerId ?? null,
+      openDelegationId: res.openDelegationId ?? null,
+      ...(res.suggestedPersonId !== undefined
+        ? { suggestedPersonId: res.suggestedPersonId }
+        : {}),
+      ...(input.deadlineAt !== undefined ? { deadlineAt: input.deadlineAt } : {}),
+    });
+    setEditing(null);
+    if (res.createdPerson) setPeopleList((prev) => [...prev, res.createdPerson!]);
+    if (res.assignedName) {
+      const n = res.notification;
+      if (n?.sent) {
+        showToast(`Sent to ${res.assignedName} via ${(n.channel ?? "").toUpperCase()}`, "good");
+      } else if (n?.skipped === "no_contact") {
+        showToast(`Assigned to ${res.assignedName} (no contact info yet)`, "good");
+      } else if (n?.skipped === "notifications_off") {
+        showToast(`Assigned to ${res.assignedName}`, "good");
+      } else {
+        showToast(`Assigned to ${res.assignedName} — message didn't send`, "bad");
+      }
+    } else showToast("Saved");
+  };
+
+  const handleDelete = async () => {
+    if (!editing) return;
+    setSaving(true);
+    const res = await deleteEntry(editing.id);
+    setSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Delete failed", "bad");
+      return;
+    }
+    setEntries((prev) => prev.filter((e) => e.id !== editing.id));
+    setEditing(null);
+    showToast("Deleted");
+  };
+
+  const handlePark = async () => {
+    if (!editing) return;
+    const id = editing.id;
+    const res = await parkEntry(id);
+    if (!res.ok || !res.parkedUntil) {
+      showToast(res.error ?? "Couldn't park that", "bad");
+      return;
+    }
+    patchEntry(id, { parkedUntil: res.parkedUntil });
+    setEditing(null);
+    showToast("Parked — I'll bring it back in a couple weeks");
+  };
+
+  const handleCloseoutLog = async (
+    outcome: Outcome,
+    verdict: Verdict | null,
+    note: string,
+    diagnosis: Diagnosis | null,
+  ) => {
+    if (!closeout) return;
+    setSaving(true);
+    const res = await closeoutDelegation(closeout.delegationId, outcome, verdict, note, diagnosis);
+    setSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Couldn't log that", "bad");
+      return;
+    }
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.openDelegationId === closeout.delegationId ? { ...e, openDelegationId: null } : e,
+      ),
+    );
+    setCloseout(null);
+    showToast("Logged to their history", "good");
+  };
 
   return (
     <section className="screen" aria-label="Calendar">
@@ -159,7 +306,7 @@ export default function CalendarClient({
               <span className="mini-time">?</span>
               <span className="mini-label">
                 {e.summary}
-                <span className="undated-raw">&ldquo;{e.explicit_deadline}&rdquo;</span>
+                <span className="undated-raw">&ldquo;{e.explicitDeadline}&rdquo;</span>
               </span>
             </div>
           ))}
@@ -184,15 +331,20 @@ export default function CalendarClient({
                 )}
               </div>
               {dayEntries.map((e) => (
-                <div key={e.id} className="mini-block deadline">
+                <button
+                  key={e.id}
+                  type="button"
+                  className="mini-block deadline pressable"
+                  onClick={() => setEditing(e)}
+                >
                   <span className="mini-time">{deadlineTime(e)}</span>
                   <span className="mini-label">
                     {e.summary}
-                    {e.business_id && businessNames[e.business_id] && (
-                      <span className="mini-biz">{businessNames[e.business_id]}</span>
+                    {e.businessId && e.businessName && (
+                      <span className="mini-biz">{e.businessName}</span>
                     )}
                   </span>
-                </div>
+                </button>
               ))}
               {dayWindows.map(({ window: w, tentative }, i) => (
                 <div
@@ -213,6 +365,34 @@ export default function CalendarClient({
           );
         })}
       </div>
+
+      <Sheet open={Boolean(editing || closeout)} onClose={() => (closeout ? setCloseout(null) : setEditing(null))}>
+        {closeout ? (
+          <CloseoutSheet target={closeout} saving={saving} onLog={handleCloseoutLog} onSkip={() => setCloseout(null)} />
+        ) : editing ? (
+          <EntrySheet
+            entry={editing}
+            businesses={businesses}
+            businessProjectType={businessProjectType}
+            people={peopleList}
+            evidence={evidence}
+            saving={saving}
+            onSave={handleSave}
+            onDelete={handleDelete}
+            onClose={() => setEditing(null)}
+            onPark={() => void handlePark()}
+            onChecklistChanged={(entryId, checklist) => patchEntry(entryId, { checklist })}
+            onMentionedPeopleChanged={(entryId, mentionedPeople) => patchEntry(entryId, { mentionedPeople })}
+            onPersonAdded={(person) => setPeopleList((prev) => [...prev, person])}
+            onMarkDone={() => {
+              const target = editing;
+              setEditing(null);
+              void handleToggleDone(target);
+            }}
+          />
+        ) : null}
+      </Sheet>
+      <Toast toast={toast} />
     </section>
   );
 }

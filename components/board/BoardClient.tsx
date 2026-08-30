@@ -217,6 +217,9 @@ export default function BoardClient({
       intentPersonId: entry.intent_person_id,
       intentDelegationId: entry.intent_delegation_id,
       intentPayload: entry.intent_payload,
+      deadlineAt: entry.deadline_at,
+      deadlineAllDay: entry.deadline_all_day,
+      explicitDeadline: entry.explicit_deadline,
     };
     setEntries((prev) => [row, ...prev]);
     setQuickAdd(false);
@@ -263,6 +266,7 @@ export default function BoardClient({
       ...(res.suggestedPersonId !== undefined
         ? { suggestedPersonId: res.suggestedPersonId }
         : {}),
+      ...(input.deadlineAt !== undefined ? { deadlineAt: input.deadlineAt } : {}),
     });
     setEditing(null);
     if (res.createdPerson) {
@@ -741,6 +745,11 @@ export default function BoardClient({
               patchEntry(entryId, { mentionedPeople })
             }
             onPersonAdded={(person) => setPeopleList((prev) => [...prev, person])}
+            onMarkDone={() => {
+              const target = editing;
+              setEditing(null);
+              void handleToggleDone(target);
+            }}
           />
         ) : assigning ? (
           <AssignSheet

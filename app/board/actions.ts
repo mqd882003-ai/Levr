@@ -52,6 +52,10 @@ interface SaveEntryInput {
   confirmFirst?: boolean;
   // A3.6: the trust flag that was showing when Dave assigned anyway.
   flagShown?: string | null;
+  // Calendar phase 1 §1: reschedule. Always carries the entry's current
+  // deadline_at through unless EntrySheet's date/time fields changed it —
+  // never used to newly assign a deadline to an undated entry.
+  deadlineAt?: string | null;
 }
 
 export interface SaveEntryResult {
@@ -152,6 +156,9 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
         is_leverage: input.isLeverage,
         // A user edit resolves any pending Tier 2 disagreement.
         ...(classificationChanged ? { tier2_status: null, tier2_reason: null } : {}),
+        // Reschedule (calendar phase 1 §1): only sent when EntrySheet showed
+        // a date/time field, i.e. the entry already had a deadline.
+        ...(input.deadlineAt !== undefined ? { deadline_at: input.deadlineAt } : {}),
       })
       .eq("id", input.id);
     if (updated.error) throw new Error(updated.error.message);

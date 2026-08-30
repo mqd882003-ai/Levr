@@ -222,6 +222,9 @@ export interface BoardEntry {
   intentPersonId: string | null;
   intentDelegationId: string | null;
   intentPayload: string | null;
+  deadlineAt: string | null;
+  deadlineAllDay: boolean;
+  explicitDeadline: string | null;
 }
 
 // 011: routing junction rows.

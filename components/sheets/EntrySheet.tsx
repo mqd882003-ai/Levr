@@ -25,6 +25,24 @@ export interface EntrySheetSave {
   newOwnerName?: string; // A1: inline-create + assign
   confirmFirst: boolean; // A5
   flagShown: string | null; // A3.6: trust flag visible at assignment
+  // Calendar phase 1 §1: present only when the entry had a deadline to
+  // reschedule — absent means "leave deadline_at alone".
+  deadlineAt?: string | null;
+}
+
+function toDateInput(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function toTimeInput(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function combineLocal(dateStr: string, timeStr: string): string | null {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const [hh, mm] = timeStr.split(":").map(Number);
+  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return new Date(y, m - 1, d, hh, mm).toISOString();
 }
 
 // Tap-to-expand + correct the classification (requirements §Interaction model
@@ -43,6 +61,7 @@ export default function EntrySheet({
   onChecklistChanged,
   onMentionedPeopleChanged,
   onPersonAdded,
+  onMarkDone,
 }: {
   entry: BoardEntry;
   businesses: Business[];
@@ -57,6 +76,10 @@ export default function EntrySheet({
   onChecklistChanged: (entryId: string, checklist: ChecklistState) => void;
   onMentionedPeopleChanged: (entryId: string, names: string[]) => void;
   onPersonAdded: (person: Person) => void;
+  // Calendar phase 1 §1: marking a delegated+owned item done from here must
+  // trigger the same outcome/verdict closeout the Board checkbox does — the
+  // parent owns that flow (toggleDone + CloseoutSheet), this just fires it.
+  onMarkDone?: () => void;
 }) {
   const [summary, setSummary] = useState(entry.summary);
   const [businessId, setBusinessId] = useState(entry.businessId ?? "");
@@ -70,6 +93,12 @@ export default function EntrySheet({
   const [confirmFirst, setConfirmFirst] = useState(false);
   const [mentioned, setMentioned] = useState<string[]>(entry.mentionedPeople);
   const [addingMentioned, setAddingMentioned] = useState<string | null>(null);
+  const [deadlineDate, setDeadlineDate] = useState(
+    entry.deadlineAt ? toDateInput(entry.deadlineAt) : "",
+  );
+  const [deadlineTime, setDeadlineTime] = useState(
+    entry.deadlineAt ? toTimeInput(entry.deadlineAt) : "",
+  );
 
   useEffect(() => {
     setSummary(entry.summary);
@@ -84,6 +113,8 @@ export default function EntrySheet({
     setConfirmFirst(false);
     setMentioned(entry.mentionedPeople);
     setAddingMentioned(null);
+    setDeadlineDate(entry.deadlineAt ? toDateInput(entry.deadlineAt) : "");
+    setDeadlineTime(entry.deadlineAt ? toTimeInput(entry.deadlineAt) : "");
   }, [entry]);
 
   const patchMentioned = (next: string[]) => {
@@ -202,6 +233,18 @@ export default function EntrySheet({
           </span>
         </div>
       )}
+      {onMarkDone && !entry.done && (
+        <div className="check-item" style={{ borderBottom: "none", marginBottom: 16 }}>
+          <button type="button" className="cb" onClick={onMarkDone} aria-label="Mark done">
+            <span className="box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </span>
+          </button>
+          <span className="txt">Mark done</span>
+        </div>
+      )}
       {mentioned.length > 0 && (
         <div className="field">
           <label>People mentioned</label>
@@ -293,6 +336,30 @@ export default function EntrySheet({
               Delegate
             </button>
           </div>
+        </div>
+      )}
+      {entry.deadlineAt && (
+        <div className="two">
+          <div className="field">
+            <label htmlFor="x-date">Date</label>
+            <input
+              id="x-date"
+              type="date"
+              value={deadlineDate}
+              onChange={(e) => setDeadlineDate(e.target.value)}
+            />
+          </div>
+          {!entry.deadlineAllDay && (
+            <div className="field">
+              <label htmlFor="x-time">Time</label>
+              <input
+                id="x-time"
+                type="time"
+                value={deadlineTime}
+                onChange={(e) => setDeadlineTime(e.target.value)}
+              />
+            </div>
+          )}
         </div>
       )}
       {effectiveLev === false && (
@@ -458,6 +525,13 @@ export default function EntrySheet({
                 effectiveLev === false && !ownerId && newOwnerName ? newOwnerName : undefined,
               confirmFirst,
               flagShown,
+              ...(entry.deadlineAt
+                ? {
+                    deadlineAt:
+                      combineLocal(deadlineDate, entry.deadlineAllDay ? "00:00" : deadlineTime) ??
+                      entry.deadlineAt,
+                  }
+                : {}),
             })
           }
         >
