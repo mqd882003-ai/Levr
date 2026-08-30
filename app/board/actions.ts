@@ -2,10 +2,12 @@
 
 import { after } from "next/server";
 import { categorizeDelegation, synthesizeNotes } from "@/lib/evolve";
+import { parseIntentPayload } from "@/lib/intentPayload";
 import { notifyAssignment } from "@/lib/notify";
 import type { RecommendationReasons } from "@/lib/routing";
 import { rerouteSuggestion } from "@/lib/routingServer";
 import { supabaseServer } from "@/lib/supabase/server";
+import { findSingleOpenDelegation } from "@/lib/tier2";
 import type {
   ChecklistItem,
   CorrectionField,
@@ -642,6 +644,258 @@ export async function addMentionedPerson(
     return { ok: true, person: created.data };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Add failed" };
+  }
+}
+
+// ---------- intent router: confirm / dismiss (handoff §4, §6) ----------
+// Every special intent ends in a tap-to-confirm — these actions are the only
+// writers. Nothing here runs without the founder tapping a chip.
+
+const LEVR_NOTES_MARKER = "— Levr's read —";
+
+// A confirmed alias answer becomes a shortcut for next time (Gap 2) — but
+// only ever a CANDIDATE at resolve time, so it can't silently drift wrong.
+// Skips names that already resolve to this person directly.
+async function storeAlias(aliasText: string | undefined, personId: string): Promise<void> {
+  const alias = aliasText?.trim();
+  if (!alias) return;
+  const db = supabaseServer();
+  const person = await db
+    .from("people")
+    .select("name")
+    .eq("id", personId)
+    .maybeSingle<Pick<Person, "name">>();
+  const personName = person.data?.name.toLowerCase() ?? "";
+  const needle = alias.toLowerCase();
+  if (personName === needle || personName.split(/\s+/)[0] === needle) return;
+  const existing = await db
+    .from("person_aliases")
+    .select("id")
+    .eq("person_id", personId)
+    .ilike("alias_text", alias)
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+  if (existing.data) return;
+  await db.from("person_aliases").insert({ alias_text: alias, person_id: personId });
+}
+
+// person_note YES: append the observation below the "— Levr's read —" marker
+// in people.capability_notes, then the row leaves the Board. personId is only
+// passed when the chip showed candidates (ambiguous match — Gap 2).
+export async function confirmPersonNote(
+  entryId: string,
+  personId?: string,
+): Promise<{ ok: boolean; error?: string; personName?: string }> {
+  try {
+    const db = supabaseServer();
+    const entryRes = await db
+      .from("entries")
+      .select("*")
+      .eq("id", entryId)
+      .maybeSingle<Entry>();
+    const entry = entryRes.data;
+    if (
+      !entry ||
+      entry.capture_intent !== "person_note" ||
+      entry.intent_status !== "pending_confirm"
+    ) {
+      return { ok: false, error: "That one's already been handled" };
+    }
+    const payload = parseIntentPayload(entry.intent_payload);
+    const targetId = personId ?? entry.intent_person_id;
+    if (!targetId) return { ok: false, error: "No person to file this under" };
+
+    const personRes = await db
+      .from("people")
+      .select("id, name, capability_notes")
+      .eq("id", targetId)
+      .maybeSingle<Pick<Person, "id" | "name" | "capability_notes">>();
+    const person = personRes.data;
+    if (!person) return { ok: false, error: "That person isn't on the roster anymore" };
+
+    // Answering the which-person chip teaches the alias (Gap 2).
+    if (personId && !entry.intent_person_id) await storeAlias(payload.aliasText, personId);
+
+    const note = (payload.note ?? entry.text).trim();
+    const existing = person.capability_notes ?? "";
+    const updatedNotes = existing.includes(LEVR_NOTES_MARKER)
+      ? existing + "\n• " + note
+      : (existing ? existing + "\n\n" : "") + LEVR_NOTES_MARKER + "\n• " + note;
+    const noteWrite = await db
+      .from("people")
+      .update({ capability_notes: updatedNotes })
+      .eq("id", person.id);
+    if (noteWrite.error) throw new Error(noteWrite.error.message);
+
+    const entryWrite = await db
+      .from("entries")
+      .update({
+        intent_status: "confirmed",
+        intent_person_id: person.id,
+        status: "done",
+        done_at: new Date().toISOString(),
+      })
+      .eq("id", entryId);
+    if (entryWrite.error) throw new Error(entryWrite.error.message);
+    return { ok: true, personName: person.name };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save that" };
+  }
+}
+
+export interface OutcomeConfirmResult {
+  ok: boolean;
+  error?: string;
+  // The closeout prompt to open — absent when the report fell back to task.
+  closeout?: { delegationId: string; personName: string; taskText: string };
+  // The delegation didn't resolve to exactly one open item (or went stale) —
+  // the entry was quietly kept as a regular task, never guessed at.
+  fellBackToTask?: boolean;
+}
+
+// outcome_report YES: hand back the existing closeout prompt's target. When
+// the chip showed person candidates, personId picks one and the single-open-
+// delegation rule re-runs server-side against the live data.
+export async function confirmOutcomeReport(
+  entryId: string,
+  personId?: string,
+): Promise<OutcomeConfirmResult> {
+  try {
+    const db = supabaseServer();
+    const entryRes = await db
+      .from("entries")
+      .select("*")
+      .eq("id", entryId)
+      .maybeSingle<Entry>();
+    const entry = entryRes.data;
+    if (
+      !entry ||
+      entry.capture_intent !== "outcome_report" ||
+      entry.intent_status !== "pending_confirm"
+    ) {
+      return { ok: false, error: "That one's already been handled" };
+    }
+    const payload = parseIntentPayload(entry.intent_payload);
+
+    const fallBack = async (): Promise<OutcomeConfirmResult> => {
+      await db
+        .from("entries")
+        .update({
+          capture_intent: "task",
+          intent_status: "dismissed",
+          intent_person_id: null,
+          intent_delegation_id: null,
+          intent_payload: null,
+        })
+        .eq("id", entryId);
+      return { ok: true, fellBackToTask: true };
+    };
+
+    let delegationId = entry.intent_delegation_id;
+    let personName = payload.personName ?? null;
+    let taskText = payload.taskText ?? "";
+
+    if (personId && !delegationId) {
+      // Ambiguous-person chip answered — teach the alias, then re-resolve.
+      await storeAlias(payload.aliasText, personId);
+      const match = await findSingleOpenDelegation(db, personId);
+      if (!match) return fallBack(); // 0 or 2+ open — never guess
+      const personRes = await db
+        .from("people")
+        .select("name")
+        .eq("id", personId)
+        .maybeSingle<Pick<Person, "name">>();
+      personName = personRes.data?.name ?? null;
+      taskText = match.expected_outcome ?? "";
+      delegationId = match.id;
+      await db
+        .from("entries")
+        .update({
+          intent_person_id: personId,
+          intent_delegation_id: match.id,
+          intent_payload: JSON.stringify({
+            aliasText: payload.aliasText,
+            personName,
+            taskText,
+          }),
+        })
+        .eq("id", entryId);
+    }
+    if (!delegationId) return fallBack();
+
+    // Stale check: the delegation may have been closed out some other way
+    // while the chip sat there.
+    const delRes = await db
+      .from("delegations")
+      .select("id, resolved_at")
+      .eq("id", delegationId)
+      .maybeSingle<{ id: string; resolved_at: string | null }>();
+    if (!delRes.data || delRes.data.resolved_at) return fallBack();
+
+    return {
+      ok: true,
+      closeout: {
+        delegationId,
+        personName: personName ?? "them",
+        taskText,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't open that" };
+  }
+}
+
+// After the closeout the outcome_report chip launched is actually logged,
+// the report row has done its job — it leaves the Board.
+export async function resolveOutcomeReportEntry(
+  entryId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const db = supabaseServer();
+    const res = await db
+      .from("entries")
+      .update({
+        intent_status: "confirmed",
+        status: "done",
+        done_at: new Date().toISOString(),
+      })
+      .eq("id", entryId)
+      .eq("capture_intent", "outcome_report");
+    if (res.error) throw new Error(res.error.message);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't log that" };
+  }
+}
+
+// Gap 3: neither "No" nor a timeout resolves silently — the chip's soft
+// follow-up lands here. keepAsTask=true files it as a regular task;
+// false clears (deletes) it.
+export async function dismissIntent(
+  entryId: string,
+  keepAsTask: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const db = supabaseServer();
+    if (!keepAsTask) {
+      const res = await db.from("entries").delete().eq("id", entryId);
+      if (res.error) throw new Error(res.error.message);
+      return { ok: true };
+    }
+    const res = await db
+      .from("entries")
+      .update({
+        capture_intent: "task",
+        intent_status: "dismissed",
+        intent_person_id: null,
+        intent_delegation_id: null,
+        intent_payload: null,
+      })
+      .eq("id", entryId);
+    if (res.error) throw new Error(res.error.message);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't update that" };
   }
 }
 

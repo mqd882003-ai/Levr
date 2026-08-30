@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import ConsultWatcher from "@/components/ask/ConsultWatcher";
 import BottomNav from "@/components/nav/BottomNav";
 import "./globals.css";
 
@@ -52,6 +53,7 @@ export default function RootLayout({
         <div className="device">
           {children}
           <BottomNav />
+          <ConsultWatcher />
         </div>
       </body>
     </html>
