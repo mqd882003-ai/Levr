@@ -93,7 +93,7 @@
       <div class="capture-box">
         <textarea id="capture-input" placeholder="Tell me what's going on..."></textarea>
         <div class="capture-row">
-          <button class="send-btn" onclick="handleCapture(false)">Sort it</button>
+          <button class="send-btn" onclick="handleCapture(false)">Levr, go</button>
         </div>
       </div>
       <div class="quick-examples">
@@ -143,7 +143,7 @@ function fillAndSend(long){
     document.getElementById('capture-input').value = "Call Danny about the Smith property tomorrow";
     var btn = document.querySelector('.send-btn');
     btn.textContent = 'Filed ✓';
-    setTimeout(function(){ btn.textContent = 'Sort it'; document.getElementById('capture-input').value=''; }, 900);
+    setTimeout(function(){ btn.textContent = 'Levr, go'; document.getElementById('capture-input').value=''; }, 900);
   }
 }
 function handleCapture(long){ fillAndSend(long); }

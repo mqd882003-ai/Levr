@@ -97,7 +97,7 @@ Body base: 16px / 1.5. `-webkit-font-smoothing: antialiased`.
 Fixed, 4 items in a grid (Home / Board / Team / Settings). Background `rgba(247,245,240,.88)` + `backdrop-filter: blur(18px) saturate(1.4)`, top border `--line`. Items: 22px stroke icon + 10px uppercase mono label, `--dim`; active = `--signal-text` plus a 20×3px amber notch hanging from the top border. Item hit area 56px tall.
 
 ### Capture box (Home)
-`--card` surface, `--r-xl`, 1px `--line`, `--shadow-card`. Focus-within: border → 55% signal, ring `0 0 0 4px --signal-tint`. Textarea autosizes (max 40vh). Row below: mono hint text ("Tap the mic on your keyboard to talk") + hidden-until-typed "Sort it" pill (dark, 52px) + mic circle (52px, signal-tint bg, signal-text icon; red + pulse while listening). Status line beneath is mono 12px with an inline spinner while sorting.
+`--card` surface, `--r-xl`, 1px `--line`, `--shadow-card`. Focus-within: border → 55% signal, ring `0 0 0 4px --signal-tint`. Textarea autosizes (max 40vh). Row below: mono hint text ("Tap the mic on your keyboard to talk") + hidden-until-typed "Levr, go" pill (dark, 52px) + mic circle (52px, signal-tint bg, signal-text icon; red + pulse while listening). Status line beneath is mono 12px with an inline spinner while sorting.
 
 ### Scope chips (Board)
 Horizontal scroll row, no scrollbar, scroll-snap. Chip: 44px tall pill, `--card` bg, mono 12px, with a dimmer count number. Active: `--text` bg, white text. Dynamic from businesses — never hardcoded.
@@ -154,7 +154,7 @@ Stroke SVGs only (Feather-style): `viewBox="0 0 24 24"`, `stroke-width 2` (2.2�
 
 ## 8. Voice & microcopy
 
-Warm, direct, second person, zero productivity jargon. Greeting rotates per time band ("Coffee's on. What's on your mind before it gets buried?"). Empty states reassure, not instruct. Toasts confirm in plain words ("Filed under Your 20%", "Logged to their history"). Buttons are verbs: **Sort it**, **Log it**, **Save**, **Skip**.
+Warm, direct, second person, zero productivity jargon. Greeting rotates per time band ("Coffee's on. What's on your mind before it gets buried?"). Empty states reassure, not instruct. Toasts confirm in plain words ("Filed under Your 20%", "Logged to their history"). Buttons are verbs: **Levr, go**, **Log it**, **Save**, **Skip**.
 
 ## 9. Engineering guardrails (carried from requirements)
 
