@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { toBoardEntries } from "@/lib/boardEntries";
 import { categorizeDelegation, synthesizeNotes } from "@/lib/evolve";
 import { parseIntentPayload } from "@/lib/intentPayload";
 import { notifyAssignment } from "@/lib/notify";
@@ -9,6 +10,7 @@ import { rerouteSuggestion } from "@/lib/routingServer";
 import { supabaseServer } from "@/lib/supabase/server";
 import { findSingleOpenDelegation } from "@/lib/tier2";
 import type {
+  BoardEntry,
   ChecklistItem,
   CorrectionField,
   Delegation,
@@ -271,6 +273,126 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Save failed" };
+  }
+}
+
+interface CreateManualEntryInput {
+  summary: string;
+  businessId: string | null;
+  isLeverage: boolean;
+  ownerId: string | null;
+  // A1-style inline-create + assign, same as saveEntry's owner field.
+  newOwnerName?: string;
+  // Calendar phase 2 §2: manual add always requires a date+time up front —
+  // there's no "manual add, leave undated" path.
+  deadlineAt: string;
+}
+
+export interface CreateManualEntryResult {
+  ok: boolean;
+  error?: string;
+  entry?: BoardEntry;
+  createdPerson?: Person;
+  assignedName?: string | null;
+  notification?: SaveEntryResult["notification"];
+}
+
+function manualDeadlineLabel(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+// Calendar phase 2 §2: the "+" button's plain manual insert — no AI
+// classification call, no tier2/corrections logging (there's no prior state
+// to correct against). Bare-insert counterpart to saveEntry's update-only
+// path; the entry+delegation shape mirrors what saveEntry produces so the
+// same BoardEntry mapper (toBoardEntries) can build the row for the client.
+export async function createManualEntry(
+  input: CreateManualEntryInput,
+): Promise<CreateManualEntryResult> {
+  try {
+    const summary = input.summary.trim();
+    if (!summary) return { ok: false, error: "Give it a name first" };
+    const db = supabaseServer();
+
+    let createdPerson: Person | undefined;
+    let ownerToAssign = input.ownerId;
+    if (!ownerToAssign && input.newOwnerName?.trim() && !input.isLeverage) {
+      const created = await db
+        .from("people")
+        .insert({ name: input.newOwnerName.trim(), business_id: input.businessId })
+        .select()
+        .single<Person>();
+      if (created.error || !created.data) throw new Error(created.error?.message ?? "Couldn't add them");
+      createdPerson = created.data;
+      ownerToAssign = created.data.id;
+    }
+    const desiredOwner = !input.isLeverage ? ownerToAssign : null;
+
+    const inserted = await db
+      .from("entries")
+      .insert({
+        text: summary,
+        summary,
+        business_id: input.businessId,
+        is_leverage: input.isLeverage,
+        status: "open",
+        source: "text",
+        explicit_deadline: manualDeadlineLabel(input.deadlineAt),
+        deadline_at: input.deadlineAt,
+        deadline_all_day: false,
+      })
+      .select()
+      .single<Entry>();
+    if (inserted.error || !inserted.data) throw new Error(inserted.error?.message ?? "Insert failed");
+    const entry = inserted.data;
+
+    let delegation: Delegation | null = null;
+    let assignedName: string | null = null;
+    let notification: SaveEntryResult["notification"];
+    if (desiredOwner) {
+      const del = await db
+        .from("delegations")
+        .insert({ entry_id: entry.id, person_id: desiredOwner, expected_outcome: summary })
+        .select()
+        .single<Delegation>();
+      if (del.error) throw new Error(del.error.message);
+      delegation = del.data;
+      const person = await db
+        .from("people")
+        .select("name")
+        .eq("id", desiredOwner)
+        .single<Pick<Person, "name">>();
+      assignedName = person.data?.name ?? null;
+      notification = await notifyAssignment(del.data.id);
+    }
+
+    let businessName = new Map<string, string>();
+    if (entry.business_id) {
+      const biz = await db
+        .from("businesses")
+        .select("name")
+        .eq("id", entry.business_id)
+        .maybeSingle<{ name: string }>();
+      if (biz.data) businessName = new Map([[entry.business_id, biz.data.name]]);
+    }
+
+    const [boardEntry] = toBoardEntries(
+      [entry],
+      delegation ? [delegation] : [],
+      [],
+      businessName,
+      new Map(),
+    );
+
+    return { ok: true, entry: boardEntry, createdPerson, assignedName, notification };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Add failed" };
   }
 }
 

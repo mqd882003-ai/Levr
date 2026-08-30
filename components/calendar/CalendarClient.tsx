@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   closeoutDelegation,
+  createManualEntry,
   deleteEntry,
   parkEntry,
   saveEntry,
@@ -10,6 +11,7 @@ import {
 } from "@/app/board/actions";
 import Sheet from "@/components/sheets/Sheet";
 import CloseoutSheet, { type CloseoutTarget } from "@/components/sheets/CloseoutSheet";
+import CreateEntrySheet, { type CreateEntrySave } from "@/components/sheets/CreateEntrySheet";
 import DateAssignSheet from "@/components/sheets/DateAssignSheet";
 import EntrySheet, { type EntrySheetSave } from "@/components/sheets/EntrySheet";
 import Toast, { type ToastState } from "@/components/ui/Toast";
@@ -119,6 +121,7 @@ export default function CalendarClient({
   const [editing, setEditing] = useState<BoardEntry | null>(null);
   const [closeout, setCloseout] = useState<CloseoutTarget | null>(null);
   const [dating, setDating] = useState<BoardEntry | null>(null);
+  const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -226,6 +229,31 @@ export default function CalendarClient({
     patchEntry(dating.id, { deadlineAt });
     setDating(null);
     showToast("Dated");
+  };
+
+  const handleCreate = async (input: CreateEntrySave) => {
+    setSaving(true);
+    const res = await createManualEntry(input);
+    setSaving(false);
+    if (!res.ok || !res.entry) {
+      showToast(res.error ?? "Couldn't add that", "bad");
+      return;
+    }
+    setEntries((prev) => [res.entry!, ...prev]);
+    setCreating(false);
+    if (res.createdPerson) setPeopleList((prev) => [...prev, res.createdPerson!]);
+    if (res.assignedName) {
+      const n = res.notification;
+      if (n?.sent) {
+        showToast(`Added and sent to ${res.assignedName} via ${(n.channel ?? "").toUpperCase()}`, "good");
+      } else if (n?.skipped === "no_contact") {
+        showToast(`Added and assigned to ${res.assignedName} (no contact info yet)`, "good");
+      } else if (n?.skipped === "notifications_off") {
+        showToast(`Added and assigned to ${res.assignedName}`, "good");
+      } else {
+        showToast(`Added and assigned to ${res.assignedName} — message didn't send`, "bad");
+      }
+    } else showToast("Added to calendar", "good");
   };
 
   const handleDelete = async () => {
@@ -395,11 +423,23 @@ export default function CalendarClient({
         })}
       </div>
 
+      <button
+        type="button"
+        className="fab pressable"
+        aria-label="Add to calendar"
+        onClick={() => setCreating(true)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+
       <Sheet
-        open={Boolean(editing || closeout || dating)}
+        open={Boolean(editing || closeout || dating || creating)}
         onClose={() => {
           if (closeout) setCloseout(null);
           else if (dating) setDating(null);
+          else if (creating) setCreating(false);
           else setEditing(null);
         }}
       >
@@ -411,6 +451,14 @@ export default function CalendarClient({
             saving={saving}
             onAssign={handleAssignDate}
             onSkip={() => setDating(null)}
+          />
+        ) : creating ? (
+          <CreateEntrySheet
+            businesses={businesses}
+            people={peopleList}
+            saving={saving}
+            onSave={handleCreate}
+            onClose={() => setCreating(false)}
           />
         ) : editing ? (
           <EntrySheet
