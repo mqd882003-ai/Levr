@@ -93,6 +93,23 @@ export interface Project {
 
 export type Tier2Status = "confirmed" | "revised" | "flagged" | "failed";
 
+// 012: intent router. capture_intent defaults to 'task'; the other fields are
+// only populated for special intents (intent-router-handoff §3).
+export type CaptureIntent =
+  | "task"
+  | "person_note"
+  | "outcome_report"
+  | "consult"
+  | "decision";
+export type IntentStatus = "processing" | "pending_confirm" | "confirmed" | "dismissed";
+
+export interface PersonAlias {
+  id: string;
+  alias_text: string;
+  person_id: string;
+  confirmed_at: string;
+}
+
 export interface Entry {
   id: string;
   text: string;
@@ -116,6 +133,12 @@ export interface Entry {
   deadline_at: string | null; // parsed from explicit_deadline at save time (010) — null = undated
   deadline_all_day: boolean; // date known but no clock time stated
   stated_reason: string | null;
+  capture_intent: CaptureIntent;
+  intent_status: IntentStatus | null;
+  intent_person_id: string | null;
+  intent_delegation_id: string | null;
+  intent_payload: string | null; // JSON per intent (candidates / consult reply / closeout target)
+  intent_evidence: string | null; // the literal snippet Gate 1 pointed to
 }
 
 export interface ChecklistItem {
@@ -194,6 +217,11 @@ export interface BoardEntry {
   category: string | null;
   parkedUntil: string | null;
   mentionedPeople: string[];
+  captureIntent: CaptureIntent;
+  intentStatus: IntentStatus | null;
+  intentPersonId: string | null;
+  intentDelegationId: string | null;
+  intentPayload: string | null;
 }
 
 // 011: routing junction rows.

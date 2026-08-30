@@ -1,6 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabase/server";
+import { consultReply } from "@/lib/consult";
 import { proposeCategory } from "@/lib/evolve";
+import { runIntentGate, resolvePersonCandidates, type IntentGateResult } from "@/lib/intent";
+import { PERSONA } from "@/lib/persona";
 import { topPick } from "@/lib/routing";
 import { recommendOwner } from "@/lib/routingServer";
 import type {
@@ -10,6 +13,7 @@ import type {
   Delegation,
   Entry,
   Person,
+  PersonAlias,
   Project,
 } from "@/lib/types";
 
@@ -18,13 +22,7 @@ import type {
 const MODEL = "claude-sonnet-5";
 const CORRECTIONS_WINDOW = 20;
 
-export const PERSONA =
-  "You are an experienced business operations consultant and chief of staff for a busy, " +
-  "multi-business founder. Your job is to help them protect their time: flag what only they " +
-  "should personally handle (strategy, key decisions, judgment calls unique to their position), " +
-  "and what should be handed off to their team. You know their businesses, their team's track " +
-  "record, and how they've corrected your past calls — use all of it to make a sharper call " +
-  "than a first-pass guess would.";
+export { PERSONA } from "@/lib/persona";
 
 export interface Tier2Context {
   businesses: Business[];
@@ -33,29 +31,32 @@ export interface Tier2Context {
   delegations: Delegation[];
   corrections: Correction[];
   categories: Category[];
+  aliases: PersonAlias[]; // 012: confirmed name→person answers (intent router Gap 2)
 }
 
 export async function loadTier2Context(): Promise<Tier2Context> {
   const db = supabaseServer();
-  const [businesses, projects, people, delegations, corrections, categories] = await Promise.all([
-    db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
-    db.from("projects").select("*").then(unwrap<Project>),
-    db.from("people").select("*").then(unwrap<Person>),
-    db
-      .from("delegations")
-      .select("*")
-      .order("assigned_at", { ascending: false })
-      .limit(100)
-      .then(unwrap<Delegation>),
-    db
-      .from("corrections")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(CORRECTIONS_WINDOW)
-      .then(unwrap<Correction>),
-    db.from("categories").select("*").eq("status", "active").then(unwrap<Category>),
-  ]);
-  return { businesses, projects, people, delegations, corrections, categories };
+  const [businesses, projects, people, delegations, corrections, categories, aliases] =
+    await Promise.all([
+      db.from("businesses").select("*").order("created_at").then(unwrap<Business>),
+      db.from("projects").select("*").then(unwrap<Project>),
+      db.from("people").select("*").then(unwrap<Person>),
+      db
+        .from("delegations")
+        .select("*")
+        .order("assigned_at", { ascending: false })
+        .limit(100)
+        .then(unwrap<Delegation>),
+      db
+        .from("corrections")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(CORRECTIONS_WINDOW)
+        .then(unwrap<Correction>),
+      db.from("categories").select("*").eq("status", "active").then(unwrap<Category>),
+      db.from("person_aliases").select("*").then(unwrap<PersonAlias>),
+    ]);
+  return { businesses, projects, people, delegations, corrections, categories, aliases };
 }
 
 // All dynamic text embedded via JSON.stringify (spec §Known failure mode).
@@ -182,6 +183,19 @@ export async function runTier2(entryId: string): Promise<void> {
       .maybeSingle<Entry>();
     if (!before.data) return; // deleted while we waited — nothing to do
     const entry = before.data;
+
+    // Intent router Step 1 (intent-router-handoff §2): decide what KIND of
+    // thing this is before spending the full pipeline on it. Gate 1's
+    // evidence rule is enforced in lib/intent.ts — no literal snippet, no
+    // exception. A plain task (the default and common case) falls straight
+    // through to the pipeline below with no further intent work spent.
+    const gate = await runIntentGate(entry.text, ctx.people, ctx.businesses);
+    if (gate.intent !== "task") {
+      const handled = await routeSpecialIntent(db, entry, gate, ctx);
+      if (handled) return;
+      // No safe landing for the special read (person off the roster, no
+      // single open delegation, …) — never guess; continue as a plain task.
+    }
 
     const client = new Anthropic();
     // Sonnet 5 thinks adaptively by default and thinking spends max_tokens —
@@ -311,6 +325,223 @@ export async function runTier2(entryId: string): Promise<void> {
 function unwrap<T>(result: { data: T[] | null; error: { message: string } | null }): T[] {
   if (result.error) throw new Error(result.error.message);
   return result.data ?? [];
+}
+
+// ---------- intent router Step 2: per-intent behavior (handoff §4) ----------
+
+const INTENT_LABEL: Record<string, string> = {
+  person_note: "a note about someone",
+  outcome_report: "a delegation outcome",
+  consult: "a question for me",
+  decision: "a decision",
+};
+
+// Returns true when the entry found a special-intent landing (row updated and
+// the plain pipeline must NOT run); false = fall back to the plain-task
+// pipeline. Philosophy check: nothing in here writes real data automatically
+// — every intent besides task parks at a tap-to-confirm (or, for consult, an
+// ephemeral conversation that never files anything).
+async function routeSpecialIntent(
+  db: Db,
+  entry: Entry,
+  gate: IntentGateResult,
+  ctx: Tier2Context,
+): Promise<boolean> {
+  // Universal race rule (§5): if the founder acted on the row before Tier 2
+  // finished, his action always wins — flag quietly, never overwrite.
+  const [fresh, delegation, corrected] = await Promise.all([
+    db.from("entries").select("*").eq("id", entry.id).maybeSingle<Entry>(),
+    db
+      .from("delegations")
+      .select("id")
+      .eq("entry_id", entry.id)
+      .limit(1)
+      .maybeSingle<{ id: string }>(),
+    db
+      .from("corrections")
+      .select("id")
+      .eq("entry_id", entry.id)
+      .limit(1)
+      .maybeSingle<{ id: string }>(),
+  ]);
+  if (!fresh.data) return true; // deleted — nothing to do
+  const acted =
+    fresh.data.status !== "open" ||
+    Boolean(delegation.data) ||
+    Boolean(corrected.data) ||
+    fresh.data.is_leverage !== entry.is_leverage ||
+    fresh.data.business_id !== entry.business_id;
+  if (acted) {
+    await db
+      .from("entries")
+      .update({
+        tier2_status: "flagged",
+        tier2_reason:
+          "Read this as " + INTENT_LABEL[gate.intent] + " — left as-is since you'd already acted.",
+        tier2_at: new Date().toISOString(),
+      })
+      .eq("id", entry.id);
+    return true;
+  }
+
+  const stamp = { tier2_status: "confirmed", tier2_at: new Date().toISOString() };
+
+  // decision: a call already made. Tagged, stays visible — no destination
+  // built yet, and none gets invented here (handoff §4: do not build one
+  // until explicitly scoped). Nothing lost, nothing guessed.
+  if (gate.intent === "decision") {
+    await db
+      .from("entries")
+      .update({
+        capture_intent: "decision",
+        intent_status: "confirmed",
+        intent_evidence: gate.evidence,
+        ...stamp,
+      })
+      .eq("id", entry.id);
+    return true;
+  }
+
+  // consult: answered conversationally, never filed as a task. Mark the Ask
+  // row thinking first so Board shows it immediately, then generate the
+  // opening reply. Ephemeral by design — the reply lives in intent_payload
+  // only so the conversation screen can open; later turns are never saved.
+  if (gate.intent === "consult") {
+    await db
+      .from("entries")
+      .update({
+        capture_intent: "consult",
+        intent_status: "processing",
+        intent_evidence: gate.evidence,
+      })
+      .eq("id", entry.id);
+    try {
+      const reply = await consultReply(entry.text, [], ctx);
+      await db
+        .from("entries")
+        .update({
+          intent_status: "confirmed",
+          intent_payload: JSON.stringify({ reply }),
+          ...stamp,
+        })
+        .eq("id", entry.id);
+    } catch (err) {
+      console.error("consult reply failed for", entry.id, err);
+      // Fail open to a plain task row — never leave a forever-pulsing Ask.
+      await db
+        .from("entries")
+        .update({
+          capture_intent: "task",
+          intent_status: null,
+          intent_evidence: null,
+          tier2_status: "failed",
+          tier2_at: new Date().toISOString(),
+        })
+        .eq("id", entry.id);
+    }
+    return true;
+  }
+
+  // person_note / outcome_report both hang on a roster person (Gap 2):
+  // aliases count only as candidates, and ambiguity always asks, never
+  // guesses. Nobody matching = the gate misread it — plain task.
+  const candidates = resolvePersonCandidates(gate.personName ?? "", ctx.people, ctx.aliases);
+  if (!candidates.length) return false;
+
+  if (gate.intent === "person_note") {
+    const one = candidates.length === 1 ? candidates[0] : null;
+    await db
+      .from("entries")
+      .update({
+        capture_intent: "person_note",
+        intent_status: "pending_confirm",
+        intent_person_id: one?.id ?? null,
+        intent_evidence: gate.evidence,
+        intent_payload: JSON.stringify({
+          aliasText: gate.personName,
+          note: entry.text,
+          ...(one
+            ? { personName: one.name }
+            : { candidates: candidates.map((c) => ({ id: c.id, name: c.name })) }),
+        }),
+        ...stamp,
+      })
+      .eq("id", entry.id);
+    return true;
+  }
+
+  // outcome_report — ambiguous person: ask, don't guess (same chip pattern
+  // as person_note; the confirm action re-resolves the delegation after).
+  if (candidates.length > 1) {
+    await db
+      .from("entries")
+      .update({
+        capture_intent: "outcome_report",
+        intent_status: "pending_confirm",
+        intent_evidence: gate.evidence,
+        intent_payload: JSON.stringify({
+          aliasText: gate.personName,
+          candidates: candidates.map((c) => ({ id: c.id, name: c.name })),
+        }),
+        ...stamp,
+      })
+      .eq("id", entry.id);
+    return true;
+  }
+
+  // Exactly one person → needs exactly one open delegation to close out.
+  // 0 or 2+ open delegations: fall back to task, never guess (handoff §4).
+  const person = candidates[0];
+  const match = await findSingleOpenDelegation(db, person.id);
+  if (!match) return false;
+  await db
+    .from("entries")
+    .update({
+      capture_intent: "outcome_report",
+      intent_status: "pending_confirm",
+      intent_person_id: person.id,
+      intent_delegation_id: match.id,
+      intent_evidence: gate.evidence,
+      intent_payload: JSON.stringify({
+        aliasText: gate.personName,
+        personName: person.name,
+        taskText: match.expected_outcome ?? "",
+      }),
+      ...stamp,
+    })
+    .eq("id", entry.id);
+  return true;
+}
+
+// The one open delegation this outcome report could be about — open means
+// unresolved AND its entry is still open (same definition Board uses).
+// Anything but exactly one match returns null.
+export async function findSingleOpenDelegation(
+  db: Db,
+  personId: string,
+): Promise<{ id: string; entry_id: string; expected_outcome: string | null } | null> {
+  const open = await db
+    .from("delegations")
+    .select("id, entry_id, expected_outcome")
+    .eq("person_id", personId)
+    .is("resolved_at", null);
+  const rows = (open.data ?? []) as Array<{
+    id: string;
+    entry_id: string;
+    expected_outcome: string | null;
+  }>;
+  if (!rows.length) return null;
+  const entries = await db
+    .from("entries")
+    .select("id")
+    .in(
+      "id",
+      rows.map((r) => r.entry_id),
+    )
+    .eq("status", "open");
+  const openIds = new Set((entries.data ?? []).map((e: { id: string }) => e.id));
+  const live = rows.filter((r) => openIds.has(r.entry_id));
+  return live.length === 1 ? live[0] : null;
 }
 
 type Db = ReturnType<typeof supabaseServer>;
