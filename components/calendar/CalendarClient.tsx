@@ -78,6 +78,10 @@ function sameDay(a: Date, b: Date): boolean {
   );
 }
 
+function dateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 // Which weekdays (0-6) a window belongs to, and whether that placement is
 // solid or a floating guess.
 function expandWindow(w: ProtectedWindow): { days: number[]; tentative: boolean } {
@@ -169,9 +173,13 @@ export default function CalendarClient({
   people: Person[];
   evidence: TrustEvidence[];
 }) {
-  const [view, setView] = useState<"week" | "day">("week");
+  const [view, setView] = useState<"week" | "day" | "month">("week");
   const [weekOffset, setWeekOffset] = useState(0);
   const [dayCursor, setDayCursor] = useState(() => new Date());
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
   const [entries, setEntries] = useState(initialEntries);
   const [peopleList, setPeopleList] = useState(people);
   const [editing, setEditing] = useState<BoardEntry | null>(null);
@@ -219,6 +227,41 @@ export default function CalendarClient({
     () => buildDayBlocks(cursorEntries, cursorWindows),
     [cursorEntries, cursorWindows],
   );
+
+  // Month view (calendar-phase2-item4): dot counts come from the same
+  // `dated` array Week/Day already compute — one source of truth, no
+  // separate fetch or count query.
+  const deadlineCountByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of dated) {
+      const key = dateKey(new Date(e.deadlineAt!));
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [dated]);
+  const monthCells = useMemo(() => {
+    const firstOfMonth = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
+    const gridStart = new Date(firstOfMonth.getTime() - firstOfMonth.getDay() * DAY_MS);
+    return Array.from({ length: 42 }, (_, i) => {
+      const date = new Date(gridStart.getTime() + i * DAY_MS);
+      return {
+        date,
+        inMonth: date.getMonth() === monthCursor.getMonth(),
+        count: deadlineCountByDate.get(dateKey(date)) ?? 0,
+      };
+    });
+  }, [monthCursor, deadlineCountByDate]);
+  const monthLabel = monthCursor.toLocaleDateString([], { month: "long", year: "numeric" });
+  const isCurrentMonth =
+    monthCursor.getFullYear() === today.getFullYear() && monthCursor.getMonth() === today.getMonth();
+
+  // Per-view navigation semantics — each view's prev/next arrow means
+  // something different (a day, a week, a month), not one shared step.
+  const navigate = (dir: 1 | -1) => {
+    if (view === "day") setDayCursor((d) => new Date(d.getTime() + dir * DAY_MS));
+    else if (view === "month") setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() + dir, 1));
+    else setWeekOffset((o) => o + dir);
+  };
 
   const handleToggleDone = async (entry: BoardEntry) => {
     patchEntry(entry.id, { done: true });
@@ -375,12 +418,8 @@ export default function CalendarClient({
           <button
             type="button"
             className="day-arrow pressable"
-            aria-label={view === "day" ? "Previous day" : "Previous week"}
-            onClick={() =>
-              view === "day"
-                ? setDayCursor((d) => new Date(d.getTime() - DAY_MS))
-                : setWeekOffset((o) => o - 1)
-            }
+            aria-label={view === "day" ? "Previous day" : view === "month" ? "Previous month" : "Previous week"}
+            onClick={() => navigate(-1)}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
               <polyline points="15 18 9 12 15 6" />
@@ -389,12 +428,8 @@ export default function CalendarClient({
           <button
             type="button"
             className="day-arrow pressable"
-            aria-label={view === "day" ? "Next day" : "Next week"}
-            onClick={() =>
-              view === "day"
-                ? setDayCursor((d) => new Date(d.getTime() + DAY_MS))
-                : setWeekOffset((o) => o + 1)
-            }
+            aria-label={view === "day" ? "Next day" : view === "month" ? "Next month" : "Next week"}
+            onClick={() => navigate(1)}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
               <polyline points="9 18 15 12 9 6" />
@@ -422,6 +457,15 @@ export default function CalendarClient({
         >
           Week
         </button>
+        <button
+          type="button"
+          className={`toggle-pill${view === "month" ? " active" : ""}`}
+          role="tab"
+          aria-selected={view === "month"}
+          onClick={() => setView("month")}
+        >
+          Month
+        </button>
         {view === "week" && weekOffset !== 0 && (
           <button type="button" className="toggle-pill today-jump" onClick={() => setWeekOffset(0)}>
             Today ({weekLabel})
@@ -429,6 +473,15 @@ export default function CalendarClient({
         )}
         {view === "day" && !sameDay(dayCursor, today) && (
           <button type="button" className="toggle-pill today-jump" onClick={() => setDayCursor(new Date())}>
+            Today
+          </button>
+        )}
+        {view === "month" && !isCurrentMonth && (
+          <button
+            type="button"
+            className="toggle-pill today-jump"
+            onClick={() => setMonthCursor(new Date(today.getFullYear(), today.getMonth(), 1))}
+          >
             Today
           </button>
         )}
@@ -503,6 +556,45 @@ export default function CalendarClient({
               ),
             )}
           </div>
+        </>
+      )}
+
+      {view === "month" && (
+        <>
+          <div className="month-title">{monthLabel}</div>
+          <div className="month-weekdays">
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+              <span key={i}>{d}</span>
+            ))}
+          </div>
+          <div className="month-grid">
+            {monthCells.map(({ date, inMonth, count }) => {
+              const isToday = sameDay(date, today);
+              return (
+                <button
+                  key={date.toISOString()}
+                  type="button"
+                  className={`month-cell${inMonth ? "" : " other-month"}${isToday ? " today" : ""}`}
+                  disabled={!inMonth}
+                  onClick={() => {
+                    setDayCursor(date);
+                    setView("day");
+                  }}
+                >
+                  <span className="num">{date.getDate()}</span>
+                  {count > 0 && (
+                    <span className="dots">
+                      {Array.from({ length: Math.min(count, 3) }).map((_, i) => (
+                        <span key={i} className="dot" />
+                      ))}
+                      {count > 3 && <span className="dot more" />}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="month-legend">Tap a day to open it · dot = deadline that day</div>
         </>
       )}
 

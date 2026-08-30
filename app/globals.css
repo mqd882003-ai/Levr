@@ -1305,6 +1305,88 @@ select:focus-visible {
   color: var(--dim);
 }
 
+/* Month view (calendar-phase2-item4): navigation-only grid — no edit surface,
+   tapping a date jumps into Day view. */
+.month-title {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  padding: 0 var(--px);
+  margin-bottom: 14px;
+}
+.month-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  padding: 0 var(--px);
+  margin-bottom: 6px;
+}
+.month-weekdays span {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  padding: 0 var(--px);
+  margin-bottom: 12px;
+}
+.month-cell {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  position: relative;
+}
+.month-cell.other-month {
+  opacity: 0.35;
+  cursor: default;
+}
+.month-cell.today {
+  border-color: var(--signal);
+  border-width: 1.5px;
+}
+.month-cell .num {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.month-cell.today .num {
+  color: var(--signal-text);
+}
+.month-cell .dots {
+  display: flex;
+  gap: 2px;
+}
+.month-cell .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--signal);
+}
+.month-cell .dot.more {
+  background: var(--dim);
+}
+.month-legend {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  text-align: center;
+  padding: 0 var(--px);
+  margin-bottom: 8px;
+}
+
 /* ===== TEAM ===== */
 .team {
   padding: 0 var(--px);
