@@ -1221,6 +1221,90 @@ select:focus-visible {
   padding: 2px 4px;
 }
 
+/* Day view (calendar-phase2-item3): full-width agenda cards, distinct from
+   Week's compact mini-block rows — windows and deadlines merged and sorted
+   chronologically together (see CalendarClient's dayBlocks comment). */
+.day-only-title {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  padding: 0 var(--px);
+  margin-bottom: 2px;
+}
+.day-only-title.today {
+  color: var(--signal-text);
+}
+.day-only-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  padding: 0 var(--px);
+  margin-bottom: 16px;
+}
+.day-view {
+  padding: 0 var(--px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.day-card {
+  display: flex;
+  gap: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  width: 100%;
+  text-align: left;
+  font-family: "Inter", sans-serif;
+}
+.day-card.protected {
+  background: var(--noise-tint);
+  cursor: default;
+}
+.day-card.protected.tentative {
+  border-style: dashed;
+}
+.day-card.deadline {
+  border-color: var(--signal);
+  border-left-width: 3px;
+  cursor: pointer;
+}
+.day-card-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  width: 52px;
+  flex-shrink: 0;
+  line-height: 1.4;
+  padding-top: 1px;
+}
+.day-card-time b {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.day-card.deadline .day-card-time b {
+  color: var(--signal-text);
+}
+.day-card-body {
+  flex: 1;
+  min-width: 0;
+}
+.day-card-title {
+  font-size: 15px;
+  line-height: 1.4;
+}
+.day-card-meta {
+  margin-top: 5px;
+}
+.day-card-meta .mini-biz {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
 /* ===== TEAM ===== */
 .team {
   padding: 0 var(--px);

@@ -38,6 +38,16 @@ import type {
 //
 // calendar-phase1-handoff §1: tapping a deadline block opens the same
 // EntrySheet Board uses — no parallel edit UI.
+//
+// Day view (calendar-phase2-item3): DELIBERATE choice, not accidental —
+// windows and deadlines are merged and sorted chronologically together
+// (matching the original day-agenda concept this app is modeled from), unlike
+// Week's per-day list which still lists deadlines before windows unsorted.
+// An agenda view's whole point is "what happens when" as one linear flow;
+// Week's ordering was never a considered decision, just how it fell out of
+// rendering entries then windows. Untimed windows and all-day deadlines sort
+// to the end of the day (no real clock position), consistent with Week's
+// existing all-day-last convention for deadlines specifically.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKDAY_NAMES = [
@@ -100,6 +110,50 @@ function deadlineTime(e: BoardEntry): string {
     .replace(":00", "");
 }
 
+function dayEntriesFor(date: Date, dated: BoardEntry[]): BoardEntry[] {
+  return dated
+    .filter((e) => sameDay(new Date(e.deadlineAt!), date))
+    .sort((a, b) => {
+      if (a.deadlineAllDay !== b.deadlineAllDay) return a.deadlineAllDay ? 1 : -1;
+      return a.deadlineAt!.localeCompare(b.deadlineAt!);
+    });
+}
+
+function dayWindowsFor(
+  date: Date,
+  expandedWindows: { w: ProtectedWindow; exp: { days: number[]; tentative: boolean } }[],
+): DayWindow[] {
+  return expandedWindows
+    .filter(({ exp }) => exp.days.includes(date.getDay()))
+    .map(({ w, exp }) => ({ window: w, tentative: exp.tentative }));
+}
+
+function hhmmToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+// Day view's chronological merge (see header comment for why this differs
+// from Week). Untimed windows and all-day deadlines sort to the end.
+type DayBlock =
+  | { kind: "deadline"; entry: BoardEntry; sortKey: number }
+  | { kind: "protected"; window: ProtectedWindow; tentative: boolean; sortKey: number };
+
+function buildDayBlocks(dayEntries: BoardEntry[], dayWindows: DayWindow[]): DayBlock[] {
+  const blocks: DayBlock[] = [];
+  for (const e of dayEntries) {
+    const sortKey =
+      e.deadlineAllDay || !e.deadlineAt
+        ? Infinity
+        : new Date(e.deadlineAt).getHours() * 60 + new Date(e.deadlineAt).getMinutes();
+    blocks.push({ kind: "deadline", entry: e, sortKey });
+  }
+  for (const { window: w, tentative } of dayWindows) {
+    blocks.push({ kind: "protected", window: w, tentative, sortKey: w.start ? hhmmToMinutes(w.start) : Infinity });
+  }
+  return blocks.sort((a, b) => a.sortKey - b.sortKey);
+}
+
 export default function CalendarClient({
   entries: initialEntries,
   windows,
@@ -115,7 +169,9 @@ export default function CalendarClient({
   people: Person[];
   evidence: TrustEvidence[];
 }) {
+  const [view, setView] = useState<"week" | "day">("week");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [dayCursor, setDayCursor] = useState(() => new Date());
   const [entries, setEntries] = useState(initialEntries);
   const [peopleList, setPeopleList] = useState(people);
   const [editing, setEditing] = useState<BoardEntry | null>(null);
@@ -145,19 +201,24 @@ export default function CalendarClient({
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(weekStart.getTime() + i * DAY_MS);
-    const dayEntries = dated
-      .filter((e) => sameDay(new Date(e.deadlineAt!), date))
-      .sort((a, b) => {
-        if (a.deadlineAllDay !== b.deadlineAllDay) return a.deadlineAllDay ? 1 : -1;
-        return a.deadlineAt!.localeCompare(b.deadlineAt!);
-      });
-    const dayWindows: DayWindow[] = expandedWindows
-      .filter(({ exp }) => exp.days.includes(date.getDay()))
-      .map(({ w, exp }) => ({ window: w, tentative: exp.tentative }));
-    return { date, dayEntries, dayWindows };
+    return {
+      date,
+      dayEntries: dayEntriesFor(date, dated),
+      dayWindows: dayWindowsFor(date, expandedWindows),
+    };
   });
 
   const weekLabel = weekStart.toLocaleDateString([], { month: "short", day: "numeric" });
+
+  const cursorEntries = useMemo(() => dayEntriesFor(dayCursor, dated), [dayCursor, dated]);
+  const cursorWindows = useMemo(
+    () => dayWindowsFor(dayCursor, expandedWindows),
+    [dayCursor, expandedWindows],
+  );
+  const dayBlocks = useMemo(
+    () => buildDayBlocks(cursorEntries, cursorWindows),
+    [cursorEntries, cursorWindows],
+  );
 
   const handleToggleDone = async (entry: BoardEntry) => {
     patchEntry(entry.id, { done: true });
@@ -314,8 +375,12 @@ export default function CalendarClient({
           <button
             type="button"
             className="day-arrow pressable"
-            aria-label="Previous week"
-            onClick={() => setWeekOffset((o) => o - 1)}
+            aria-label={view === "day" ? "Previous day" : "Previous week"}
+            onClick={() =>
+              view === "day"
+                ? setDayCursor((d) => new Date(d.getTime() - DAY_MS))
+                : setWeekOffset((o) => o - 1)
+            }
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
               <polyline points="15 18 9 12 15 6" />
@@ -324,8 +389,12 @@ export default function CalendarClient({
           <button
             type="button"
             className="day-arrow pressable"
-            aria-label="Next week"
-            onClick={() => setWeekOffset((o) => o + 1)}
+            aria-label={view === "day" ? "Next day" : "Next week"}
+            onClick={() =>
+              view === "day"
+                ? setDayCursor((d) => new Date(d.getTime() + DAY_MS))
+                : setWeekOffset((o) => o + 1)
+            }
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
               <polyline points="9 18 15 12 9 6" />
@@ -335,17 +404,32 @@ export default function CalendarClient({
       </div>
 
       <div className="view-toggle" role="tablist" aria-label="Calendar view">
-        {/* Day view is v1-stubbed by design — the pill exists so the layout
-            matches the approved mockup, but only Week is real. */}
-        <span className="toggle-pill disabled" aria-disabled="true" title="Coming later">
+        <button
+          type="button"
+          className={`toggle-pill${view === "day" ? " active" : ""}`}
+          role="tab"
+          aria-selected={view === "day"}
+          onClick={() => setView("day")}
+        >
           Day
-        </span>
-        <span className="toggle-pill active" role="tab" aria-selected="true">
+        </button>
+        <button
+          type="button"
+          className={`toggle-pill${view === "week" ? " active" : ""}`}
+          role="tab"
+          aria-selected={view === "week"}
+          onClick={() => setView("week")}
+        >
           Week
-        </span>
-        {weekOffset !== 0 && (
+        </button>
+        {view === "week" && weekOffset !== 0 && (
           <button type="button" className="toggle-pill today-jump" onClick={() => setWeekOffset(0)}>
             Today ({weekLabel})
+          </button>
+        )}
+        {view === "day" && !sameDay(dayCursor, today) && (
+          <button type="button" className="toggle-pill today-jump" onClick={() => setDayCursor(new Date())}>
+            Today
           </button>
         )}
       </div>
@@ -370,6 +454,59 @@ export default function CalendarClient({
         </div>
       )}
 
+      {view === "day" && (
+        <>
+          <div className={`day-only-title${sameDay(dayCursor, today) ? " today" : ""}`}>
+            {dayCursor.toLocaleDateString([], { weekday: "long" })}
+            {sameDay(dayCursor, today) ? " · Today" : ""}
+          </div>
+          <div className="day-only-sub">
+            {dayCursor.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}
+          </div>
+          <div className="day-view">
+            {dayBlocks.length === 0 && <div className="week-empty">Nothing scheduled</div>}
+            {dayBlocks.map((b, i) =>
+              b.kind === "deadline" ? (
+                <button
+                  key={b.entry.id}
+                  type="button"
+                  className="day-card deadline pressable"
+                  onClick={() => setEditing(b.entry)}
+                >
+                  <div className="day-card-time">
+                    <b>{deadlineTime(b.entry)}</b>
+                  </div>
+                  <div className="day-card-body">
+                    <div className="day-card-title">{b.entry.summary}</div>
+                    {b.entry.businessId && b.entry.businessName && (
+                      <div className="day-card-meta">
+                        <span className="mini-biz">{b.entry.businessName}</span>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              ) : (
+                <div
+                  key={`p-${b.window.label}-${i}`}
+                  className={`day-card protected${b.tentative ? " tentative" : ""}`}
+                >
+                  <div className="day-card-time">
+                    <b>{windowTime(b.window)}</b>
+                  </div>
+                  <div className="day-card-body">
+                    <div className="day-card-title">
+                      {b.window.label}
+                      {b.tentative && <span className="floats-tag">floats</span>}
+                    </div>
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
+        </>
+      )}
+
+      {view === "week" && (
       <div className="week-view">
         {days.map(({ date, dayEntries, dayWindows }) => {
           const isToday = sameDay(date, today);
@@ -422,6 +559,7 @@ export default function CalendarClient({
           );
         })}
       </div>
+      )}
 
       <button
         type="button"
@@ -456,6 +594,7 @@ export default function CalendarClient({
           <CreateEntrySheet
             businesses={businesses}
             people={peopleList}
+            defaultDate={view === "day" ? dayCursor : undefined}
             saving={saving}
             onSave={handleCreate}
             onClose={() => setCreating(false)}
