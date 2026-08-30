@@ -10,6 +10,7 @@ import {
 } from "@/app/board/actions";
 import Sheet from "@/components/sheets/Sheet";
 import CloseoutSheet, { type CloseoutTarget } from "@/components/sheets/CloseoutSheet";
+import DateAssignSheet from "@/components/sheets/DateAssignSheet";
 import EntrySheet, { type EntrySheetSave } from "@/components/sheets/EntrySheet";
 import Toast, { type ToastState } from "@/components/ui/Toast";
 import type {
@@ -117,6 +118,7 @@ export default function CalendarClient({
   const [peopleList, setPeopleList] = useState(people);
   const [editing, setEditing] = useState<BoardEntry | null>(null);
   const [closeout, setCloseout] = useState<CloseoutTarget | null>(null);
+  const [dating, setDating] = useState<BoardEntry | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -202,6 +204,28 @@ export default function CalendarClient({
         showToast(`Assigned to ${res.assignedName} — message didn't send`, "bad");
       }
     } else showToast("Saved");
+  };
+
+  const handleAssignDate = async (deadlineAt: string) => {
+    if (!dating) return;
+    setSaving(true);
+    const res = await saveEntry({
+      id: dating.id,
+      summary: dating.summary,
+      businessId: dating.businessId,
+      projectName: dating.projectName ?? "",
+      isLeverage: dating.isLeverage,
+      ownerId: dating.ownerId,
+      deadlineAt,
+    });
+    setSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Couldn't set that date", "bad");
+      return;
+    }
+    patchEntry(dating.id, { deadlineAt });
+    setDating(null);
+    showToast("Dated");
   };
 
   const handleDelete = async () => {
@@ -302,13 +326,18 @@ export default function CalendarClient({
         <div className="undated-strip">
           <div className="undated-label">No date yet — still real deadlines</div>
           {undated.map((e) => (
-            <div key={e.id} className="mini-block undated">
+            <button
+              key={e.id}
+              type="button"
+              className="mini-block undated pressable"
+              onClick={() => setDating(e)}
+            >
               <span className="mini-time">?</span>
               <span className="mini-label">
                 {e.summary}
                 <span className="undated-raw">&ldquo;{e.explicitDeadline}&rdquo;</span>
               </span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -366,9 +395,23 @@ export default function CalendarClient({
         })}
       </div>
 
-      <Sheet open={Boolean(editing || closeout)} onClose={() => (closeout ? setCloseout(null) : setEditing(null))}>
+      <Sheet
+        open={Boolean(editing || closeout || dating)}
+        onClose={() => {
+          if (closeout) setCloseout(null);
+          else if (dating) setDating(null);
+          else setEditing(null);
+        }}
+      >
         {closeout ? (
           <CloseoutSheet target={closeout} saving={saving} onLog={handleCloseoutLog} onSkip={() => setCloseout(null)} />
+        ) : dating ? (
+          <DateAssignSheet
+            target={dating}
+            saving={saving}
+            onAssign={handleAssignDate}
+            onSkip={() => setDating(null)}
+          />
         ) : editing ? (
           <EntrySheet
             entry={editing}

@@ -11,6 +11,7 @@ import {
 import { SheetHead } from "@/components/sheets/Sheet";
 import Avatar from "@/components/ui/Avatar";
 import { avatarTint, initials } from "@/lib/avatar";
+import { combineLocal, toDateInput, toTimeInput } from "@/lib/dateInput";
 import { readTrust } from "@/lib/trust";
 import type { BoardEntry, Business, Person, ProjectType, TrustEvidence } from "@/lib/types";
 
@@ -28,21 +29,6 @@ export interface EntrySheetSave {
   // Calendar phase 1 §1: present only when the entry had a deadline to
   // reschedule — absent means "leave deadline_at alone".
   deadlineAt?: string | null;
-}
-
-function toDateInput(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-function toTimeInput(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-function combineLocal(dateStr: string, timeStr: string): string | null {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const [hh, mm] = timeStr.split(":").map(Number);
-  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
-  return new Date(y, m - 1, d, hh, mm).toISOString();
 }
 
 // Tap-to-expand + correct the classification (requirements §Interaction model
