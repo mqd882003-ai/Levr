@@ -110,6 +110,11 @@ export default async function BoardPage({
       category: e.category,
       parkedUntil: e.parked_until,
       mentionedPeople: e.mentioned_people,
+      captureIntent: e.capture_intent ?? "task",
+      intentStatus: e.intent_status,
+      intentPersonId: e.intent_person_id,
+      intentDelegationId: e.intent_delegation_id,
+      intentPayload: e.intent_payload,
     };
   });
 

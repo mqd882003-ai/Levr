@@ -6,15 +6,21 @@ import { recommendFromSnapshot, topPick, type RoutingSnapshot } from "@/lib/rout
 import {
   applyReviewSuggestion,
   closeoutDelegation,
+  confirmOutcomeReport,
+  confirmPersonNote,
   deleteEntry,
+  dismissIntent,
   logRoutingDecision,
   parkEntry,
+  resolveOutcomeReportEntry,
   saveEntry,
   toggleDone,
 } from "@/app/board/actions";
 import type { ReviewSuggestion } from "@/app/api/review/route";
 import ReviewSheet from "@/components/sheets/ReviewSheet";
+import AskSection from "@/components/board/AskSection";
 import BoardSection from "@/components/board/BoardSection";
+import type { IntentHandlers } from "@/components/board/EntryRow";
 import DoneDrawer from "@/components/board/DoneDrawer";
 import PulseBar from "@/components/board/PulseBar";
 import ScopeChips from "@/components/board/ScopeChips";
@@ -62,6 +68,9 @@ export default function BoardClient({
   const [flashId, setFlashId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BoardEntry | null>(null);
   const [closeout, setCloseout] = useState<CloseoutTarget | null>(null);
+  // Intent router: when the closeout sheet was opened from an outcome_report
+  // confirm chip, logging it also retires the report row itself.
+  const [closeoutSourceEntryId, setCloseoutSourceEntryId] = useState<string | null>(null);
   const [quickAdd, setQuickAdd] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -94,12 +103,45 @@ export default function BoardClient({
 
   // Server data is the source of truth after any navigation (including the
   // quick-add flow pushing /board?new=…, which refetches the page).
+  // Intent router: the same sync detects a consult flipping processing →
+  // confirmed — resolving while the founder is ON Board auto-opens the
+  // conversation (handoff §4; ConsultWatcher covers every other screen).
+  const prevEntriesRef = useRef<BoardEntry[]>(initialEntries);
   useEffect(() => {
+    const prev = prevEntriesRef.current;
+    prevEntriesRef.current = initialEntries;
     setEntries(initialEntries);
+    if (document.visibilityState !== "visible") return;
+    const resolved = initialEntries.find(
+      (e) =>
+        e.captureIntent === "consult" &&
+        e.intentStatus === "confirmed" &&
+        !e.done &&
+        prev.some(
+          (p) => p.id === e.id && p.captureIntent === "consult" && p.intentStatus === "processing",
+        ),
+    );
+    if (resolved) router.push(`/ask/${resolved.id}?auto=1`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialEntries]);
   useEffect(() => {
     setPeopleList(people);
   }, [people]);
+
+  // Universal processing state (handoff §5): while any row is still cooking
+  // on Tier 2, poll so the Board catches the resolution — paused whenever a
+  // sheet is open so a refresh can't yank state out from under a form.
+  const sheetOpen = Boolean(editing || closeout || quickAdd || reviewOpen || assigning);
+  const hasPending = entries.some(
+    (e) => !e.done && (e.tier2Status === null || e.intentStatus === "processing"),
+  );
+  useEffect(() => {
+    if (!hasPending || sheetOpen) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") router.refresh();
+    }, 4000);
+    return () => clearInterval(t);
+  }, [hasPending, sheetOpen, router]);
 
   // Fresh capture: flash + scroll to the new row, announce the filing, clean
   // the URL (requirements §Home: "visibly highlighted at the top ... for a
@@ -170,6 +212,11 @@ export default function BoardClient({
       category: entry.category,
       parkedUntil: entry.parked_until,
       mentionedPeople: entry.mentioned_people,
+      captureIntent: entry.capture_intent ?? "task",
+      intentStatus: entry.intent_status,
+      intentPersonId: entry.intent_person_id,
+      intentDelegationId: entry.intent_delegation_id,
+      intentPayload: entry.intent_payload,
     };
     setEntries((prev) => [row, ...prev]);
     setQuickAdd(false);
@@ -438,14 +485,97 @@ export default function BoardClient({
           : e,
       ),
     );
+    // Intent router: a closeout launched from an outcome_report chip also
+    // retires the report row — it did its job (handoff §4).
+    if (closeoutSourceEntryId) {
+      const sourceId = closeoutSourceEntryId;
+      setCloseoutSourceEntryId(null);
+      void resolveOutcomeReportEntry(sourceId);
+      setEntries((prev) => prev.filter((e) => e.id !== sourceId));
+    }
     setCloseout(null);
     showToast("Logged to their history", "good");
   };
 
+  // ---------- intent router chip handlers (handoff §4, §6) ----------
+
+  const intentHandlers: IntentHandlers = {
+    onConfirm: async (entry, personId) => {
+      if (saving) return;
+      if (entry.captureIntent === "person_note") {
+        setSaving(true);
+        const res = await confirmPersonNote(entry.id, personId);
+        setSaving(false);
+        if (!res.ok) {
+          showToast(res.error ?? "Couldn't save that", "bad");
+          return;
+        }
+        setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+        showToast(`Added to ${res.personName ?? "their"}'s notes`, "good");
+        return;
+      }
+      setSaving(true);
+      const res = await confirmOutcomeReport(entry.id, personId);
+      setSaving(false);
+      if (!res.ok) {
+        showToast(res.error ?? "Couldn't open that", "bad");
+        return;
+      }
+      if (res.fellBackToTask || !res.closeout) {
+        patchEntry(entry.id, {
+          captureIntent: "task",
+          intentStatus: "dismissed",
+          intentPayload: null,
+        });
+        showToast("Couldn't match one open task — kept as a regular task");
+        return;
+      }
+      setCloseoutSourceEntryId(entry.id);
+      setCloseout(res.closeout);
+    },
+    onKeepAsTask: async (entry) => {
+      const res = await dismissIntent(entry.id, true);
+      if (!res.ok) {
+        showToast(res.error ?? "Couldn't update that", "bad");
+        return;
+      }
+      patchEntry(entry.id, {
+        captureIntent: "task",
+        intentStatus: "dismissed",
+        intentPayload: null,
+      });
+      showToast("Kept as a regular task");
+    },
+    onClear: async (entry) => {
+      const res = await dismissIntent(entry.id, false);
+      if (!res.ok) {
+        showToast(res.error ?? "Couldn't clear that", "bad");
+        return;
+      }
+      setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      showToast("Cleared");
+    },
+  };
+
+  // Dismissing a resolved Ask row files it away as done — the conversation
+  // was ephemeral, there's nothing else to keep.
+  const handleAskDismiss = async (entry: BoardEntry) => {
+    patchEntry(entry.id, { done: true });
+    const res = await toggleDone(entry.id, true);
+    if (!res.ok) {
+      patchEntry(entry.id, { done: false });
+      showToast("Couldn't dismiss that — try again", "bad");
+    }
+  };
+
   const scoped = entries.filter((e) => scope === "all" || e.businessId === scope);
-  const lev = scoped.filter((e) => e.isLeverage === true && !e.done);
-  const del = scoped.filter((e) => e.isLeverage === false && !e.done);
-  const rev = scoped.filter((e) => e.isLeverage === null && !e.done);
+  // Consult rows live in their own Ask section — never in the task sections
+  // (handoff §4: tagged and answered back, NOT filed as a task).
+  const asks = scoped.filter((e) => e.captureIntent === "consult" && !e.done);
+  const nonAsk = scoped.filter((e) => e.captureIntent !== "consult");
+  const lev = nonAsk.filter((e) => e.isLeverage === true && !e.done);
+  const del = nonAsk.filter((e) => e.isLeverage === false && !e.done);
+  const rev = nonAsk.filter((e) => e.isLeverage === null && !e.done);
   const done = scoped.filter((e) => e.done);
   const openCount = lev.length + del.length + rev.length;
 
@@ -475,7 +605,12 @@ export default function BoardClient({
         </div>
       </div>
       <ScopeChips businesses={businesses} scope={scope} counts={counts} onScope={setScope} />
-      <PulseBar entries={scoped} />
+      <PulseBar entries={nonAsk} />
+      <AskSection
+        entries={asks}
+        onOpen={(e) => router.push(`/ask/${e.id}`)}
+        onDismiss={(e) => void handleAskDismiss(e)}
+      />
       {openCount > 0 && (
         <button
           type="button"
@@ -510,6 +645,7 @@ export default function BoardClient({
         onLongPress={setAssigning}
         onToggleType={handleToggleType}
         isTypeToggleable={isTypeToggleable}
+        intentHandlers={intentHandlers}
       />
       <BoardSection
         title="Delegated"
@@ -531,6 +667,7 @@ export default function BoardClient({
         onLongPress={setAssigning}
         onToggleType={handleToggleType}
         isTypeToggleable={isTypeToggleable}
+        intentHandlers={intentHandlers}
       />
       {rev.length > 0 && (
         <BoardSection
@@ -543,6 +680,7 @@ export default function BoardClient({
           onDelete={handleDeleteEntry}
           onOpen={setEditing}
           onLongPress={setAssigning}
+          intentHandlers={intentHandlers}
         />
       )}
       <DoneDrawer
@@ -567,8 +705,10 @@ export default function BoardClient({
       <Sheet
         open={Boolean(editing || closeout || quickAdd || reviewOpen || assigning)}
         onClose={() => {
-          if (closeout) setCloseout(null);
-          else if (editing) setEditing(null);
+          if (closeout) {
+            setCloseout(null);
+            setCloseoutSourceEntryId(null);
+          } else if (editing) setEditing(null);
           else if (assigning) setAssigning(null);
           else if (quickAdd) setQuickAdd(false);
           else setReviewOpen(false);
@@ -579,7 +719,10 @@ export default function BoardClient({
             target={closeout}
             saving={saving}
             onLog={handleCloseoutLog}
-            onSkip={() => setCloseout(null)}
+            onSkip={() => {
+              setCloseout(null);
+              setCloseoutSourceEntryId(null);
+            }}
           />
         ) : editing ? (
           <EntrySheet

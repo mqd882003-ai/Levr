@@ -1,6 +1,6 @@
 "use client";
 
-import EntryRow from "@/components/board/EntryRow";
+import EntryRow, { type IntentHandlers } from "@/components/board/EntryRow";
 import type { BoardEntry, Person } from "@/lib/types";
 
 export default function BoardSection({
@@ -18,6 +18,7 @@ export default function BoardSection({
   onLongPress,
   onToggleType,
   isTypeToggleable,
+  intentHandlers,
 }: {
   title: string;
   swatch: "signal" | "noise" | "review";
@@ -33,6 +34,7 @@ export default function BoardSection({
   onLongPress?: (entry: BoardEntry) => void;
   onToggleType?: (entry: BoardEntry) => void;
   isTypeToggleable?: (entry: BoardEntry) => boolean;
+  intentHandlers?: IntentHandlers;
 }) {
   return (
     <div className="section">
@@ -54,6 +56,7 @@ export default function BoardSection({
             onLongPress={onLongPress}
             onToggleType={onToggleType}
             typeToggleable={isTypeToggleable ? isTypeToggleable(e) : false}
+            intentHandlers={intentHandlers}
           />
         ))
       ) : (

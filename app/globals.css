@@ -27,6 +27,10 @@
   --good-tint: #e4f5ea;
   --bad: #d8483f;
   --bad-tint: #fbe9e7;
+  /* Intent router (2026-08-28 handoff): the Ask/consult accent. */
+  --ask: #5b6ee8;
+  --ask-tint: #eef0fd;
+  --ask-text: #3d4cb0;
   --display: var(--font-display), "Space Grotesk", system-ui, sans-serif;
   --body: var(--font-body), "Inter", system-ui, sans-serif;
   --mono: var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
@@ -2468,4 +2472,494 @@ select:focus-visible {
     box-shadow: 0 0 0 1px var(--line);
     min-height: 100vh;
   }
+}
+
+/* ============================================================
+   Intent router (intent-router-handoff, 2026-08-28)
+   ============================================================ */
+
+/* Universal processing state (§5): grayed, pulsing, visibly unresolved —
+   never silently looks finished when it isn't. Row stays fully interactive;
+   acting on it wins the race and Tier 2 flags quietly instead. */
+.row.processing {
+  opacity: 0.62;
+  animation: intentPulse 1.6s ease-in-out infinite;
+}
+@keyframes intentPulse {
+  0%,
+  100% {
+    opacity: 0.62;
+  }
+  50% {
+    opacity: 0.86;
+  }
+}
+.row-meta .processing-tag {
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+/* decision: tagged, stays visible — no destination built yet (§4). */
+.row-meta .decision-tag {
+  color: var(--ask-text);
+  background: var(--ask-tint);
+  padding: 1px 7px;
+  border-radius: 100px;
+  letter-spacing: 0.04em;
+}
+
+/* Confirm chip (§4/§6): the tap-to-confirm every non-task intent parks at. */
+.intent-chip {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--ask-tint);
+  border: 1px solid var(--ask);
+  border-radius: var(--r-sm);
+}
+.intent-chip .intent-q {
+  display: block;
+  font-size: 13.5px;
+  color: var(--ask-text);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+.intent-chip .intent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.intent-chip .intent-actions button {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 100px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font-family: var(--body);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.intent-chip .intent-actions button.yes {
+  background: var(--text);
+  border-color: var(--text);
+  color: #fff;
+}
+
+/* Ask section (§4): consult rows — answered back, never filed as tasks. */
+.sw.ask {
+  background: var(--ask);
+}
+.ask-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--ask-tint);
+  border: 1px solid var(--ask);
+  border-radius: var(--r-md);
+  margin-bottom: 8px;
+  padding: 14px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.ask-row:active {
+  opacity: 0.85;
+}
+.ask-row.pending {
+  background: var(--card-2);
+  border: 1px dashed var(--dim);
+  cursor: default;
+}
+.ask-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ask);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ask-icon.pending {
+  background: var(--dim);
+}
+.ask-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.ask-body {
+  flex: 1;
+  min-width: 0;
+}
+.ask-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ask-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+.ask-label.pending {
+  color: var(--dim);
+}
+.ask-text {
+  font-size: 14.5px;
+  color: var(--text);
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ask-dismiss {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.ask-dismiss svg {
+  width: 15px;
+  height: 15px;
+}
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: askPulse 1.2s ease-in-out infinite;
+}
+@keyframes askPulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Consult conversation screen (§4, Gap 5) — ephemeral, never saved. */
+.ask-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding-bottom: var(--nav-h);
+}
+.convo-header {
+  padding: 18px var(--px) 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
+.back-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.back-btn svg {
+  width: 17px;
+  height: 17px;
+}
+.convo-title {
+  flex: 1;
+  min-width: 0;
+}
+.convo-title .t1 {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+}
+.convo-title .t2 {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}
+.convo-badge {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ask-text);
+  background: var(--ask-tint);
+  border: 1px solid var(--ask);
+  border-radius: 100px;
+  padding: 3px 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.convo-body {
+  flex: 1;
+  padding: 20px var(--px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.bubble {
+  max-width: 82%;
+  padding: 11px 14px;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--text);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.bubble.levr {
+  align-self: flex-start;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+.bubble.thinking {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 14px 16px;
+}
+.think-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dim);
+  animation: askPulse 1.2s ease-in-out infinite;
+}
+.think-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.think-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+.convo-error {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--bad);
+}
+.convo-error button {
+  background: none;
+  border: none;
+  color: var(--bad);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.convo-footnote {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  padding: 6px var(--px) 2px;
+}
+.convo-input-bar {
+  padding: 12px var(--px) 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.convo-input-bar input {
+  flex: 1;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 12px 16px;
+  font-size: 15px;
+  outline: none;
+  font-family: var(--body);
+  color: var(--text);
+}
+.convo-input-bar input:focus {
+  border-color: var(--signal);
+}
+.convo-send {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--text);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.convo-send:disabled {
+  opacity: 0.4;
+}
+.convo-send svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* Orbit processing overlay (intent-router-handoff §5 reference motion): the
+   mark's dot lifts off, orbits while Tier 1 works, drops back when sorted. */
+.orbit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px var(--px) var(--nav-h);
+  animation: orbitFade 0.25s ease both;
+}
+@keyframes orbitFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.orbit-wrap {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin-bottom: 34px;
+}
+.orbit-mark {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 39px;
+  filter: drop-shadow(0 6px 18px rgba(28, 29, 32, 0.18));
+  animation: orbitBreathe 3.2s ease-in-out infinite;
+}
+@keyframes orbitBreathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+/* Baked dot on the mark: fades out while the live dot is away orbiting,
+   fades back (after the landing settles) when it returns. */
+.orbit-static-dot {
+  opacity: 1;
+  transition: opacity 0.3s ease 0.5s;
+}
+.orbit-static-dot.away {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+/* Invisible pivot at the mark's center — rotating it swings the dot. */
+.orbit-pivot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  z-index: 2;
+}
+.orbit-pivot.spin {
+  animation: orbitSpin 1.4s linear infinite;
+}
+@keyframes orbitSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The live dot: rests exactly over the baked dot, parks at the top of the
+   orbit circle while spinning. Opacity is delayed on the way back so it
+   lands before handing off to the baked dot. */
+.orbit-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translate(-50%, -50%) translate(38.7px, -38.7px);
+  transition:
+    transform 0.55s cubic-bezier(0.34, 1.15, 0.4, 1),
+    opacity 0.3s ease 0.45s;
+}
+.orbit-dot.parked {
+  opacity: 1;
+  transform: translate(-50%, -50%) translate(0, -108px);
+  transition:
+    transform 0.55s cubic-bezier(0.34, 1.15, 0.4, 1),
+    opacity 0.25s ease;
+}
+.orbit-slogan {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  min-height: 26px;
+  margin-bottom: 6px;
+  transition: opacity 0.25s ease;
+}
+.orbit-sub {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--dim);
+  letter-spacing: 0.03em;
+  min-height: 16px;
+  transition: opacity 0.25s ease;
+}
+.orbit-slogan.fade,
+.orbit-sub.fade {
+  opacity: 0;
+}
+.orbit-track {
+  width: 180px;
+  height: 4px;
+  background: var(--card-2);
+  border-radius: 100px;
+  margin-top: 26px;
+  overflow: hidden;
+}
+.orbit-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--signal);
+  border-radius: 100px;
+  transition: width 1.6s ease;
+}
+.orbit-hint {
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--dim);
 }

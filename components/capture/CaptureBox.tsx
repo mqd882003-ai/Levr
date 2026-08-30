@@ -4,9 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Entry } from "@/lib/types";
 import CaptureQuestions, { type AskableItem } from "@/components/capture/CaptureQuestions";
+import ProcessingOrbit from "@/components/capture/ProcessingOrbit";
 
 const IDLE_STATUS = "Just talk or type. I'll sort out where it goes.";
 const MAX_QUESTIONS = 3;
+// Orbit threshold (intent-router-handoff §5): a quick capture stays instant;
+// a long dump earns the full-screen dot-orbits-the-mark processing state.
+const LONG_DUMP_CHARS = 120;
+const ORBIT_MIN_MS = 2600; // let the dot actually orbit before landing
 
 export interface CapturedExtras {
   businessName: string | null;
@@ -83,6 +88,10 @@ export default function CaptureBox({
   const [status, setStatus] = useState(IDLE_STATUS);
   const [questionQueue, setQuestionQueue] = useState<AskableItem[] | null>(null);
   const pendingNavRef = useRef<string | null>(null);
+  // Orbit overlay phase (Home long dumps only). The continuation runs after
+  // the landing animation settles so the sort visibly finishes first.
+  const [orbitPhase, setOrbitPhase] = useState<null | "orbit" | "landing">(null);
+  const orbitContinueRef = useRef<(() => void) | null>(null);
 
   // Set up in-app speech recognition only where it actually works: not as an
   // installed PWA (iOS Safari standalone silently breaks it). It must fail
@@ -158,6 +167,12 @@ export default function CaptureBox({
     setSorting(true);
     setStatus("Sorting it out…");
 
+    // Long dumps on Home take over the screen with the orbit (§5); quick
+    // captures and Board quick-add stay exactly as they were.
+    const useOrbit = !onCaptured && text.length > LONG_DUMP_CHARS;
+    const orbitStart = Date.now();
+    if (useOrbit) setOrbitPhase("orbit");
+
     try {
       const res = await fetch("/api/classify", {
         method: "POST",
@@ -175,6 +190,9 @@ export default function CaptureBox({
       if (!res.ok || !data.entry) {
         throw new Error(data.error || "Something went wrong");
       }
+      // Wake the consult watcher — Tier 2 may route this one to a
+      // conversation a few seconds from now (intent-router-handoff §4).
+      window.dispatchEvent(new Event("levr:captured"));
       if (onCaptured) {
         setSorting(false);
         setStatus(IDLE_STATUS);
@@ -188,20 +206,35 @@ export default function CaptureBox({
       // Requirements §Interaction model rule-3 exception: pause here for up
       // to 3 quick questions before Board. The entries are already saved —
       // closing the app mid-question loses nothing.
-      const queue = buildQuestionQueue(
-        data.createdEntries ?? [],
-        Boolean(businesses?.length),
-      );
-      if (queue.length) {
-        pendingNavRef.current = data.entry.id;
-        setSorting(false);
-        setStatus(IDLE_STATUS);
-        setQuestionQueue(queue);
+      const entry = data.entry;
+      const proceed = () => {
+        const queue = buildQuestionQueue(
+          data.createdEntries ?? [],
+          Boolean(businesses?.length),
+        );
+        if (queue.length) {
+          pendingNavRef.current = entry.id;
+          setSorting(false);
+          setStatus(IDLE_STATUS);
+          setQuestionQueue(queue);
+          return;
+        }
+        router.push(`/board?new=${entry.id}`);
+      };
+      if (useOrbit) {
+        // Let the dot finish at least one real orbit, then land and continue.
+        const wait = Math.max(0, ORBIT_MIN_MS - (Date.now() - orbitStart));
+        setTimeout(() => {
+          orbitContinueRef.current = proceed;
+          setOrbitPhase("landing");
+        }, wait);
         return;
       }
-      router.push(`/board?new=${data.entry.id}`);
+      proceed();
     } catch (err) {
       // Don't lose the thought — put it back in the field.
+      setOrbitPhase(null);
+      orbitContinueRef.current = null;
       ta.value = text;
       setHasText(true);
       autosize(ta);
@@ -216,6 +249,17 @@ export default function CaptureBox({
 
   return (
     <>
+      {orbitPhase && (
+        <ProcessingOrbit
+          landing={orbitPhase === "landing"}
+          onLanded={() => {
+            setOrbitPhase(null);
+            const go = orbitContinueRef.current;
+            orbitContinueRef.current = null;
+            go?.();
+          }}
+        />
+      )}
       <div className="capture">
         <textarea
           ref={taRef}
