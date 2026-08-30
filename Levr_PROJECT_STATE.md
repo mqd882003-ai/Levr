@@ -1,7 +1,13 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-28** — routing junction stages 1–5 COMPLETE, committed AND (after a
+> Last updated: **2026-08-30** — INTENT ROUTER built per `intent-router-handoff-with-demos.html`
+> (2026-08-28 final, all 5 gaps pre-decided). Three commits (`afafa30`/`6e80f17`/`a6495e6`),
+> migration 012 applied, subtree-pushed (GitHub `31e88f1`), bundle verification in the row below.
+> Gate 1's §7 evidence test ran against real Sonnet TWICE before build: 5/5 both runs, Stella
+> stress test → task (safe). Live-tested end-to-end on the real pipeline; all fixtures deleted.
+>
+> Previous update 2026-08-28 — routing junction stages 1–5 COMPLETE, committed AND (after a
 > caught deploy gap — see Dev workflow) subtree-pushed + bundle-verified live. iOS long-press
 > text-selection fix shipped (`7ae2bf7`). Decisive-gate + reroute-on-reclassification fixes
 > shipped (`539efa9`) with a one-row backfill (the stale VA pick → Danny). Standing rule from
