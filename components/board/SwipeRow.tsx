@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Swipe gesture per levr-swipe-prototype.html (spec direction mapping):
 //   swipe RIGHT past threshold  -> commits Done on release (green reveal)
@@ -97,6 +97,22 @@ export default function SwipeRow({
     setX(0, true);
     setRevealed(false);
   };
+
+  // Only one row's delete panel should ever sit open at rest. Starting any
+  // interaction elsewhere — swiping/tapping another row, or tapping outside
+  // the list entirely — closes this one. Scoped to while revealed so at most
+  // one listener is live at a time.
+  useEffect(() => {
+    if (!revealed) return;
+    const closeIfOutside = (e: PointerEvent) => {
+      const wrap = rowRef.current?.closest(".row-wrap");
+      if (wrap && e.target instanceof Node && wrap.contains(e.target)) return;
+      reset();
+    };
+    document.addEventListener("pointerdown", closeIfOutside, true);
+    return () => document.removeEventListener("pointerdown", closeIfOutside, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed]);
 
   const start = (clientX: number, isTouch: boolean, target: EventTarget | null) => {
     // Leave the left screen edge to Safari's native back-swipe.

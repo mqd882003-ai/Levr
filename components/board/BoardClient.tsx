@@ -428,13 +428,13 @@ export default function BoardClient({
     }
     patchEntry(s.entryId, {
       ...(res.patch.isLeverage !== undefined
-        ? { isLeverage: res.patch.isLeverage, tier2Status: null, tier2Reason: null }
+        ? { isLeverage: res.patch.isLeverage, tier2Status: "confirmed", tier2Reason: null }
         : {}),
       ...(res.patch.businessId !== undefined
         ? {
             businessId: res.patch.businessId,
             businessName: res.patch.businessName ?? null,
-            tier2Status: null,
+            tier2Status: "confirmed",
             tier2Reason: null,
           }
         : {}),

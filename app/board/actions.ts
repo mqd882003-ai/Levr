@@ -156,8 +156,11 @@ export async function saveEntry(input: SaveEntryInput): Promise<SaveEntryResult>
         business_id: input.businessId,
         project_id: projectId,
         is_leverage: input.isLeverage,
-        // A user edit resolves any pending Tier 2 disagreement.
-        ...(classificationChanged ? { tier2_status: null, tier2_reason: null } : {}),
+        // A user edit resolves any pending Tier 2 disagreement. "confirmed",
+        // not null — the founder's own correction is authoritative and needs
+        // no further Tier 2 opinion; null would leave the row reading as
+        // still-unclassified forever, since nothing re-runs Tier 2 from here.
+        ...(classificationChanged ? { tier2_status: "confirmed", tier2_reason: null } : {}),
         // Reschedule (calendar phase 1 §1): only sent when EntrySheet showed
         // a date/time field, i.e. the entry already had a deadline.
         ...(input.deadlineAt !== undefined ? { deadline_at: input.deadlineAt } : {}),
@@ -598,9 +601,11 @@ export async function applyReviewSuggestion(
     const db = supabaseServer();
     if (field === "is_leverage") {
       const isLeverage = to === "20%";
+      // Same rule as saveEntry: accepting the suggestion is a user decision,
+      // so it stamps "confirmed" — not null, which would read as still-pending.
       const res = await db
         .from("entries")
-        .update({ is_leverage: isLeverage, tier2_status: null, tier2_reason: null })
+        .update({ is_leverage: isLeverage, tier2_status: "confirmed", tier2_reason: null })
         .eq("id", entryId);
       if (res.error) throw new Error(res.error.message);
       const reroute = await rerouteSuggestion(entryId);
@@ -618,7 +623,7 @@ export async function applyReviewSuggestion(
       if (!biz.data) return { ok: false, error: "Unknown business" };
       const res = await db
         .from("entries")
-        .update({ business_id: biz.data.id, tier2_status: null, tier2_reason: null })
+        .update({ business_id: biz.data.id, tier2_status: "confirmed", tier2_reason: null })
         .eq("id", entryId);
       if (res.error) throw new Error(res.error.message);
       const reroute = await rerouteSuggestion(entryId);
