@@ -1,5 +1,5 @@
 import { NextResponse, after } from "next/server";
-import { classifyCapture, type ClassifyContext, type Chunk } from "@/lib/classify";
+import { classifyCapture, detectChunkOverlaps, type ClassifyContext, type Chunk } from "@/lib/classify";
 import { parseDeadline } from "@/lib/deadline";
 import { recommendFromSnapshot, topPick } from "@/lib/routing";
 import { loadRoutingSnapshot } from "@/lib/routingServer";
@@ -81,6 +81,13 @@ export async function POST(request: Request) {
 
     const chunks = await classifyCapture(entry.text, ctx);
 
+    // Safety net vs Tier 1 over-splitting: even with prompt guidance, a chunk
+    // can still just be a reworded restatement of another chunk from the same
+    // capture. Caught here, it's flagged the same way Tier 2's own
+    // disagreements are (tier2_status='flagged' + reason chip) rather than
+    // silently filed as two confirmed, separate items.
+    const overlapReasons = detectChunkOverlaps(chunks);
+
     // Routing junction (routing-junction-handoff.md §3): classification
     // classifies, routing routes. One snapshot of the junction's signals
     // serves every chunk of this capture.
@@ -106,6 +113,11 @@ export async function POST(request: Request) {
     }
 
     const createdIds: string[] = [];
+    // Overlap-flagged entries skip Tier 2 entirely — it unconditionally
+    // recomputes and overwrites tier2_status once it runs, which would erase
+    // this flag within seconds. A flagged split needs a human look first;
+    // there's nothing for a second AI opinion to add until that's resolved.
+    const skipTier2 = new Set<string>();
     // Additive: per-created-entry facts the Home question queue needs
     // (unresolved business / new mentioned names). Board quick-add ignores it.
     const createdEntries: Array<{
@@ -145,6 +157,9 @@ export async function POST(request: Request) {
         deadline_at: parsedDeadline.deadline_at,
         deadline_all_day: parsedDeadline.deadline_all_day,
         stated_reason: chunk.stated_reason,
+        ...(overlapReasons[i]
+          ? { tier2_status: "flagged" as const, tier2_reason: overlapReasons[i] }
+          : {}),
       };
 
       if (i === 0) {
@@ -155,6 +170,7 @@ export async function POST(request: Request) {
           ? (knownProjects.find((p) => p.id === projectId)?.name ?? chunk.project)
           : null;
         createdIds.push(entry.id);
+        if (overlapReasons[i]) skipTier2.add(entry.id);
         createdEntries.push({
           id: entry.id,
           summary: chunk.summary,
@@ -169,6 +185,7 @@ export async function POST(request: Request) {
           .single<Entry>();
         if (created.data) {
           createdIds.push(created.data.id);
+          if (overlapReasons[i]) skipTier2.add(created.data.id);
           createdEntries.push({
             id: created.data.id,
             summary: chunk.summary,
@@ -182,7 +199,9 @@ export async function POST(request: Request) {
     // Phase 2 Tier 2: consultant-grade second pass, per chunk, off the
     // critical path. after() awaits whatever the callback returns, so this
     // waits for every chunk's pass, not just the first.
-    after(() => Promise.all(createdIds.map((id) => runTier2(id))));
+    after(() =>
+      Promise.all(createdIds.filter((id) => !skipTier2.has(id)).map((id) => runTier2(id))),
+    );
 
     return NextResponse.json({
       entry: anchorEntry,

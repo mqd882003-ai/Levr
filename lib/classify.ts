@@ -57,10 +57,16 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     "\nTask categories: " + JSON.stringify(ctx.categories.map((c) => c.name)) +
     "\n\nCaptured entry: " + JSON.stringify(text) +
     "\n\nStep 1 — enumerate concerns. A capture may contain any number of distinct concerns, " +
-    "from one to a dozen. A separate concern is marked by a change in business, person, " +
-    "deliverable, or purpose — not by length; a long capture can still be one concern, and a " +
-    "short one can hold three. List each concern you find as a short label in the `concerns` " +
-    "array, in the order it was spoken, before doing anything else.\n\n" +
+    "from one to a dozen — but default to fewer, not more. A concern only earns its own entry " +
+    "when it involves a different business, a different person, or a clearly different task. " +
+    "Length is never a reason to split. Neither is a shared subject worded two different ways: " +
+    "two statements about the same case, patient, project, or team member are ONE concern even " +
+    "if the second adds detail, a deadline, or an extra name the first didn't mention — that's " +
+    "elaboration, not a new concern, so fold it into the same chunk instead of splitting it off. " +
+    "Only split when the same person/case shows up in two clearly unrelated actions (e.g. two " +
+    "different tasks for two different people that happen to both cc the same manager). When in " +
+    "doubt, keep it as one concern. List each concern you find as a short label in the " +
+    "`concerns` array, in the order it was spoken, before doing anything else.\n\n" +
     "Step 2 — for EACH concern from Step 1, produce one object in `chunks`, in the same order, " +
     "deciding:\n" +
     '- "text": the full original text of just this chunk, verbatim, no length limit and never ' +
@@ -76,7 +82,12 @@ export function buildPrompt(text: string, ctx: ClassifyContext): string {
     '- "project": an existing project name it belongs to (fuzzy match), or a short NEW 2-4 word project name if it clearly starts one, or null.\n' +
     '- "is_leverage": true if this is founder-only work (strategy, judgment, key relationships, pricing, hiring); false if operational/repeatable work someone else could do; ' +
     "ALWAYS true when the business's project_type is personal_project; null only if genuinely impossible to tell.\n" +
-    '- "summary": this chunk compressed to one board-readable line, max 12 words.\n' +
+    '- "summary": this chunk compressed to one board-readable line, max 12 words. Describe ONLY ' +
+    "what is unique to THIS chunk — never repeat a name, case, or detail already covered by an " +
+    "earlier chunk's summary unless it's a genuinely distinct action involving that same entity. " +
+    "If writing this summary means restating what an earlier chunk already said, that's a sign " +
+    "these should have been one chunk — go back and merge them instead of writing the overlap " +
+    "down twice.\n" +
     '- "category": for delegate-able tasks, the single best fit from the Task categories list, or null if none fits (null for founder-only items).\n' +
     '- "mentioned_people": names of people EXPLICITLY stated in this chunk who could plausibly be ' +
     "asked to do work — never a lead, customer, vendor, tenant, or other external party the task " +
@@ -211,6 +222,77 @@ function parseChunk(value: unknown, ctx: ClassifyContext, fallbackText: string):
     explicit_deadline,
     stated_reason,
   };
+}
+
+// Code-side safety net for Tier 1 over-splitting (parseChunk's business_evidence
+// guard is the same idea: the prompt is a lean, not a guarantee). Two chunks
+// from the SAME capture can still describe one request in different words —
+// either signal below is enough on its own to distrust the split: a
+// delegate-candidate name mentioned in both, or a summary that mostly
+// restates the other's words. Generic task verbs are filtered out of the term
+// comparison so two unrelated chunks that happen to both say "call" or
+// "notify" don't trip it; only the nouns that actually distinguish one
+// request from another count.
+const OVERLAP_STOPWORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "about", "their",
+  "they", "them", "has", "have", "had", "was", "were", "will", "need", "needs",
+  "please", "also", "just", "case", "cases", "new", "until", "before", "after",
+  // generic task verbs — shared phrasing, not shared substance
+  "review", "notify", "assess", "call", "email", "send", "ask", "tell", "check",
+  "confirm", "update", "redo", "follow", "followup", "fix", "reach", "contact",
+  "message", "text", "let", "know", "get", "give", "take", "make", "look",
+]);
+
+function significantTerms(summary: string): Set<string> {
+  return new Set(
+    summary
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(" ")
+      .filter((w) => w.length > 2 && !OVERLAP_STOPWORDS.has(w)),
+  );
+}
+
+const OVERLAP_RATIO_THRESHOLD = 0.5;
+
+function overlapDescribing(otherSummary: string): string {
+  return (
+    `Might be the same request as another new item — "${otherSummary}". ` +
+    "Check these aren't duplicates from the same capture."
+  );
+}
+
+// One reason string per chunk (same index, same length as `chunks`), or null
+// when it doesn't overlap anything earlier in the same capture. Only compares
+// a chunk against ones before it, so a 3-way overlap still flags every member
+// without reporting the same pair twice.
+export function detectChunkOverlaps(chunks: Chunk[]): (string | null)[] {
+  const terms = chunks.map((c) => significantTerms(c.summary));
+  const reasons: (string | null)[] = chunks.map(() => null);
+  for (let i = 1; i < chunks.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const sharedPerson = chunks[i].mentioned_people.find((p) =>
+        chunks[j].mentioned_people.some((q) => q.toLowerCase() === p.toLowerCase()),
+      );
+      let overlaps = Boolean(sharedPerson);
+      if (!overlaps) {
+        const a = terms[i];
+        const b = terms[j];
+        const smaller = Math.min(a.size, b.size);
+        if (smaller > 0) {
+          let shared = 0;
+          for (const t of a) if (b.has(t)) shared++;
+          overlaps = shared / smaller >= OVERLAP_RATIO_THRESHOLD;
+        }
+      }
+      if (overlaps) {
+        reasons[i] = overlapDescribing(chunks[j].summary);
+        if (!reasons[j]) reasons[j] = overlapDescribing(chunks[i].summary);
+        break; // one overlap is enough evidence for chunk i — no need to keep scanning
+      }
+    }
+  }
+  return reasons;
 }
 
 export async function classifyCapture(text: string, ctx: ClassifyContext): Promise<Chunk[]> {
