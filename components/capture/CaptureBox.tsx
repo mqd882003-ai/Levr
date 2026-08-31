@@ -247,6 +247,19 @@ export default function CaptureBox({
     }
   }, [router, sorting, onCaptured, businesses, questionQueue]);
 
+  // Glass redesign (2026-08-31 handoff): Home only. Board's quick-add sheet
+  // passes onCaptured and keeps the original compact in-card mic — the
+  // handoff is explicit that only Home gets the standalone glass mic.
+  const isHome = !onCaptured;
+  const micLabel = micAvailable ? "Voice input" : "Focus the capture field";
+  const micIcon = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+    </svg>
+  );
+
   return (
     <>
       {orbitPhase && (
@@ -260,7 +273,7 @@ export default function CaptureBox({
           }}
         />
       )}
-      <div className="capture">
+      <div className={`capture${isHome ? " glass" : ""}`}>
         <textarea
           ref={taRef}
           rows={2}
@@ -280,10 +293,12 @@ export default function CaptureBox({
             }
           }}
         />
-        <div className="capture-row">
-          <span className="capture-hint">
-            Tap the mic on your keyboard to talk
-          </span>
+        <div className={`capture-row${isHome ? " home" : ""}`}>
+          {!isHome && (
+            <span className="capture-hint">
+              Tap the mic on your keyboard to talk
+            </span>
+          )}
           <button
             type="button"
             className={`send-btn pressable${hasText && !sorting ? " show" : ""}`}
@@ -295,31 +310,61 @@ export default function CaptureBox({
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           </button>
-          <button
-            type="button"
-            className={`mic-btn pressable${listening ? " listening" : ""}`}
-            onClick={toggleMic}
-            aria-label={micAvailable ? "Voice input" : "Focus the capture field"}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="23" />
-            </svg>
-          </button>
+          {!isHome && (
+            <button
+              type="button"
+              className={`mic-btn-inline pressable${listening ? " listening" : ""}`}
+              onClick={toggleMic}
+              aria-label={micLabel}
+            >
+              {micIcon}
+            </button>
+          )}
         </div>
       </div>
-      {questionQueue ? (
-        <CaptureQuestions
-          queue={questionQueue}
-          businesses={businesses ?? []}
-          onDone={() => {
-            const id = pendingNavRef.current;
-            setQuestionQueue(null);
-            pendingNavRef.current = null;
-            if (id) router.push(`/board?new=${id}`);
-          }}
-        />
+      {isHome ? (
+        <div className="mic-standalone">
+          <div className="mic-ring">
+            <div className="pulse" aria-hidden="true" />
+            <button
+              type="button"
+              className={`mic-btn pressable${listening ? " listening" : ""}`}
+              onClick={toggleMic}
+              aria-label={micLabel}
+            >
+              {listening ? (
+                <span className="mic-bars" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </span>
+              ) : (
+                micIcon
+              )}
+            </button>
+          </div>
+          {questionQueue ? (
+            <CaptureQuestions
+              queue={questionQueue}
+              businesses={businesses ?? []}
+              onDone={() => {
+                const id = pendingNavRef.current;
+                setQuestionQueue(null);
+                pendingNavRef.current = null;
+                if (id) router.push(`/board?new=${id}`);
+              }}
+            />
+          ) : (
+            <div
+              className={`mic-caption${sorting ? " sorting" : ""}`}
+              aria-live="polite"
+            >
+              {sorting && <span className="spin" />}
+              {listening ? "Listening…" : status}
+            </div>
+          )}
+        </div>
       ) : (
         <div
           className={`capture-status${sorting ? " sorting" : ""}`}

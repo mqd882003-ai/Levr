@@ -33,6 +33,17 @@
   --ask-text: #3d4cb0;
   /* Calendar hour-grid (2026-08-30, item 5): the "now" line accent. */
   --now: #2e6fcf;
+  /* Glass redesign (2026-08-31 handoff) — Home only for now. Tints reuse
+     --signal/--signal-text (#c9891a / #8a5f10) as rgba, no new brand color. */
+  --glass-surface: rgba(255, 255, 255, 0.35);
+  --glass-surface-strong: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(201, 137, 26, 0.18) 55%,
+    rgba(138, 95, 16, 0.22) 100%
+  );
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-blur: blur(20px) saturate(180%);
   --display: var(--font-display), "Space Grotesk", system-ui, sans-serif;
   --body: var(--font-body), "Inter", system-ui, sans-serif;
   --mono: var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
@@ -124,11 +135,19 @@ select:focus-visible {
 
 /* ===== HOME ===== */
 .screen-home {
-  justify-content: center;
+  justify-content: flex-start;
   padding: calc(40px + env(safe-area-inset-top)) var(--px) calc(var(--nav-h) + 24px);
 }
 .home-inner {
   position: relative;
+  /* .mic-standalone (flex:1, below) is the only child that grows — greeting
+     and the capture card keep their natural height, the mic area absorbs
+     whatever's left down to the nav. Never a fixed push, so it can't be
+     shoved past/behind the nav on a short screen. */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .home-glow {
   position: absolute;
@@ -179,6 +198,23 @@ select:focus-visible {
 .home-inner > *:nth-child(4) { animation-delay: 0.16s; }
 .home-inner > *:nth-child(5) { animation-delay: 0.24s; }
 .home-inner > *:nth-child(6) { animation-delay: 0.32s; }
+@media (prefers-reduced-motion: reduce) {
+  /* Opacity-only cross-fade, no slide — same rule as the mic pulse/bars. */
+  .home-inner > *:not(.home-glow) {
+    animation-name: fadeOnly;
+  }
+  .home-glow {
+    animation: none;
+  }
+}
+@keyframes fadeOnly {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 @keyframes drift {
   from {
     transform: translate(-6px, 0) scale(1);
@@ -242,6 +278,43 @@ select:focus-visible {
   box-shadow: var(--shadow-card);
   transition: box-shadow 0.25s, border-color 0.25s;
 }
+/* Glass redesign (2026-08-31 handoff) — Home's capture card ONLY. Board's
+   quick-add sheet reuses the same CaptureBox component + base .capture but
+   without this modifier, per the handoff's explicit "Home only" scope. */
+.capture.glass {
+  /* White glass, not amber-tinted — Dave: "glass looking white background,
+     from the original design." Frosted/translucent still reads as glass via
+     the blur + inset highlight; the tint itself is just white now. */
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.42) 100%);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+  box-shadow: 0 8px 24px -8px rgba(28, 29, 32, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+}
+/* Reduce Transparency (iOS accessibility setting) — every new glass surface
+   from this redesign goes frostier/solid and drops the blur entirely, per
+   Apple's own guidance. Same intent as prefers-reduced-motion above, just
+   for translucency instead of movement. */
+@media (prefers-reduced-transparency: reduce) {
+  .capture.glass {
+    background: var(--card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--line);
+  }
+  .mic-btn {
+    background: var(--signal-tint);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: rgba(201, 137, 26, 0.35);
+  }
+  .bottom-nav {
+    background: var(--bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-top: 1px solid var(--line);
+  }
+}
 /* Amber hairline across the top edge — the box reads as the signal source. */
 .capture::after {
   content: "";
@@ -285,6 +358,15 @@ select:focus-visible {
   gap: 10px;
   margin-top: 10px;
 }
+/* Home only — no hint/mic left in this row (mic moved to .mic-standalone
+   below), just the send button, right-aligned. */
+.capture-row.home {
+  justify-content: flex-end;
+}
+/* Board quick-add only (Home's mic moved to .mic-standalone below) — the
+   hint text and the compact in-row mic button, unchanged from before the
+   glass redesign, per the handoff's "Home only" scope. .capture-hint's
+   flex:1 pushes the buttons right, same as before this redesign. */
 .capture-hint {
   font-family: var(--mono);
   font-size: 11.5px;
@@ -292,7 +374,7 @@ select:focus-visible {
   flex: 1;
   letter-spacing: 0.02em;
 }
-.mic-btn {
+.mic-btn-inline {
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -304,13 +386,18 @@ select:focus-visible {
   flex-shrink: 0;
   border: 1px solid rgba(201, 137, 26, 0.25);
 }
-.mic-btn.listening {
+.mic-btn-inline.listening {
   background: var(--bad);
   color: #fff;
   border-color: var(--bad);
-  animation: listen 1.2s ease-in-out infinite;
+  animation: listen-inline 1.2s ease-in-out infinite;
 }
-@keyframes listen {
+@media (prefers-reduced-motion: reduce) {
+  .mic-btn-inline.listening {
+    animation: none;
+  }
+}
+@keyframes listen-inline {
   0%,
   100% {
     box-shadow: 0 0 0 0 rgba(216, 72, 63, 0.4);
@@ -319,7 +406,7 @@ select:focus-visible {
     box-shadow: 0 0 0 10px rgba(216, 72, 63, 0);
   }
 }
-.mic-btn svg {
+.mic-btn-inline svg {
   width: 20px;
   height: 20px;
 }
@@ -352,6 +439,157 @@ select:focus-visible {
 .send-btn:hover svg {
   transform: translateX(2px);
 }
+/* Standalone mic (glass redesign, 2026-08-31 handoff): moved out of the
+   card, flex:1 so it absorbs whatever space is left between the card and
+   the nav — see .home-inner. Never a fixed offset, so it can't overlap the
+   nav on a short screen. */
+.mic-standalone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  /* More bottom padding than top biases the centered content upward. Kept
+     modest — padding isn't shrinkable, so too large a bias reintroduces the
+     earlier short-screen overflow bug (verified: this value is safe down to
+     a 667px-tall viewport, see PROJECT_STATE). */
+  padding: 4px 0 22px;
+}
+.mic-ring {
+  position: relative;
+  width: 95px;
+  height: 95px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.mic-ring .pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--signal-tint);
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mic-ring .pulse {
+    animation: micpulse 2.6s ease-out infinite;
+  }
+}
+@keyframes micpulse {
+  0% {
+    transform: scale(0.68);
+    opacity: 0.55;
+  }
+  75%,
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+.mic-btn {
+  position: relative;
+  z-index: 1;
+  width: 69px;
+  height: 69px;
+  border-radius: 50%;
+  /* Lighter/brighter than the card — mostly white with just a soft glow at
+     the edge, not the deeper amber gradient. */
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.75) 0%,
+    rgba(255, 246, 227, 0.65) 45%,
+    rgba(201, 137, 26, 0.28) 100%
+  );
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 22px -6px rgba(138, 95, 16, 0.28), 0 0 28px 2px rgba(251, 240, 218, 0.65),
+    inset 0 1px 1px rgba(255, 255, 255, 0.85);
+  color: var(--signal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.mic-btn.listening {
+  background: var(--bad);
+  color: #fff;
+  border-color: var(--bad);
+}
+.mic-btn svg {
+  width: 28px;
+  height: 28px;
+}
+.mic-bars {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 23px;
+}
+.mic-bars span {
+  width: 3px;
+  height: 8px;
+  border-radius: 2px;
+  background: #fff;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mic-bars span {
+    animation: micbar 0.9s ease-in-out infinite;
+  }
+  .mic-bars span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .mic-bars span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+  .mic-bars span:nth-child(4) {
+    animation-delay: 0.45s;
+  }
+}
+@keyframes micbar {
+  0%,
+  100% {
+    height: 6px;
+  }
+  50% {
+    height: 20px;
+  }
+}
+.mic-caption {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+  text-align: center;
+  max-width: 240px;
+}
+.mic-caption.sorting {
+  color: var(--signal-text);
+}
+.mic-caption .spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--signal-tint);
+  border-top-color: var(--signal);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Board quick-add only — status line directly under the card, unchanged
+   from before the glass redesign (Home's equivalent is .mic-caption, under
+   the standalone mic instead). */
 .capture-status {
   margin-top: 20px;
   min-height: 22px;
@@ -375,21 +613,16 @@ select:focus-visible {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 /* Post-capture question queue (requirements §Interaction model rule-3
    exception): one question, tap to answer, in place of the status line. */
 .capture-q {
-  margin-top: 20px;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--card);
   animation: fadeUp 0.25s ease both;
+  width: 100%;
 }
 .capture-q-count {
   font-family: var(--mono);
@@ -1827,10 +2060,14 @@ select:focus-visible {
   max-width: 520px;
   z-index: 20;
   padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
-  background: rgba(251, 249, 244, 0.88);
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  border-top: 1px solid var(--line);
+  /* Glass redesign (2026-08-31 handoff) — nav is shared across all 5
+     screens, so this is the one surface that goes glass everywhere in this
+     Home-only pass (acknowledged directly in the handoff's rollout table).
+     Lighter amber tint than the capture card's --glass-surface-strong. */
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.55) 0%, rgba(201, 137, 26, 0.08) 100%);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid var(--glass-border);
   /* Flex, not a fixed-column grid: item count grows (4 -> 5 with Calendar)
      without anyone remembering to update a column count. nowrap is
      explicit and intentional — a nav that doesn't fit should compress or
