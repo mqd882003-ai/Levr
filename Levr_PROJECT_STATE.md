@@ -1,7 +1,85 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-30** (same day, session continued past Calendar Phase 2) — **two
+> Last updated: **2026-08-30/31** (same session, continued into Web Push) — **Web Push
+> built (all 3 phases), committed `34a886b`, about to be pushed/deployed — NOT YET
+> verified live.** The on-device round trip (toggle → subscription row → real push
+> landing) hasn't been confirmed yet; that's the very next step after this deploy, not
+> done.
+> **⚠️ Vercel plan ceiling — READ BEFORE touching any cron/scheduling work**: Levr is on
+> **Hobby**, confirmed directly with Dave (not assumed). Hobby enforces a once-per-day
+> cron floor — any more-frequent schedule fails at deploy time (this is the SAME failure
+> mode as the 2026-08-27 incident below, hit a second time before catching it here).
+> Checked current Vercel docs for a workaround (an external scheduler hitting the
+> existing CRON_SECRET-gated route on any cadence, bypassing Vercel's own cron entirely)
+> — Dave's explicit call: **stay on Hobby, no external scheduler, no workaround.**
+> **Need to upgrade to Pro for sub-daily/precise cron timing — currently capped at
+> once-daily on Hobby.** (Couldn't put this note IN `vercel.json` itself — checked
+> Vercel's own published schema at openapi.vercel.sh/vercel.json and it sets
+> `additionalProperties: false` at the top level, so any comment-style key would risk
+> failing schema validation at deploy time. Noted in the `app/api/notify/flush/route.ts`
+> header comment instead, plus here.) `vercel.json`'s cron is `30 13 * * *` — 6:30am
+> Pacific during PDT, drifts to 5:30am during PST (Nov–Mar; Vercel cron is UTC-only, no
+> DST awareness — same one-hour seasonal drift the original `0 16 * * *` already had,
+> documented the same way). Vercel also only guarantees firing sometime within that UTC
+> hour, not the exact minute.
+> **What got rebuilt because of this**: the original Web Push Phase 1 spec wanted a
+> precise 15-min-before-deadline push — impossible on a once-daily cron, so
+> `lib/deadlineReminders.ts`'s `sendDailyDeadlineDigest()` reworked it into "what's due
+> today" (Pacific calendar day, ±1 day lookback so an entry captured same-day AFTER the
+> morning run — which would otherwise never get announced — is still caught by the next
+> day's run), bundled into ONE push (up to 5 items named, "+N more" beyond that), not a
+> push per entry. **Phase 2 (`lib/decayReminders.ts`, `sendDecayDigest()`)**: mirrors
+> `EntryRow.tsx`'s client-side `stale` chip exactly (same 6-day threshold, same
+> unsorted/unowned definition — an entry that ever had ANY delegation, even a resolved
+> one, counts as owned forever, matching `boardEntries.ts`'s `ownerId`; same parked
+> exclusion) so the push and the on-screen "Needs a decision" tag can never disagree.
+> New `entries.decay_notified_at` (migration 014) — set once, ever, never re-notified even
+> if the item somehow decays again later, per spec ("once, not repeated every day it
+> stays decayed"). **Phase 3**: `lib/notify.ts`'s `flushHeldNotifications()` now pushes
+> Dave "Sent while you were away — [task] → [person]" right after a held SMS actually
+> sends — awaited, not fire-and-forget (the whole cron route awaits everything before
+> responding; an un-awaited push here could get cut off if the function froze right
+> after), wrapped in its own try/catch so a failed confirmation push can never affect the
+> already-recorded real send. All three jobs run via one `Promise.all` in
+> `/api/notify/flush`, same route, same single daily cron — no second scheduler.
+> **Infra built fresh, not extended — the "existing PWA setup" the original ask assumed
+> didn't actually exist**: no service worker of any kind was present (`app/manifest.ts` is
+> just install metadata). Built `public/sw.js` from scratch (`push` + `notificationclick`
+> listeners) and `lib/pushClient.ts` (lazy SW registration — only on first subscribe, no
+> auto-prompt on load, per spec). `push_subscriptions` table (013) + `entries.
+> deadline_reminder_sent_at` (013). Settings toggle wired for real in the You block
+> (`components/settings/SettingsClient.tsx`) — deliberately NOT reusing the pre-existing
+> disabled "Push notifications — Soon" row under Communication channels, since that one
+> describes a different, unbuilt concept (pushing to a *team member's* installed app);
+> renamed it "Push to team" to disambiguate the two rows.
+> **VAPID keys**: Dave said they were already in `.env.local` + Vercel; they weren't in
+> `.env.local` — his pasted values had lost their line breaks in transit. Reconstructed
+> the split from byte-length math (87 chars = a 65-byte EC point, 43 chars = a 32-byte
+> scalar, both base64url w/o padding — landed exactly, no ambiguity) and validated
+> through `web-push`'s own `setVapidDetails()`, which accepted the format. That confirms
+> format only, not that the two keys are a genuinely matched pair — the live send test is
+> the real proof, still pending.
+> **Found `Levr.txt` in the repo root** (Dave's own scratch notes) with a live Supabase
+> access token and DB password in plain text, untracked but NOT gitignored — added
+> `/Levr.txt` to `.gitignore` this session so it can't accidentally get swept into a
+> commit. The file itself was left untouched (not Claude's to delete/move).
+> **Verified before shipping**: `tsc`/lint/`next build` clean (zero new lint errors — the
+> pre-existing React-Compiler errors elsewhere in the project are unchanged); live
+> browser-automation click-through on the Settings toggle confirmed the subscribe flow
+> runs correctly end-to-end up through requesting OS permission (denied automatically by
+> the sandboxed test browser, as expected — no human there to click Allow — and the code
+> handled that denial gracefully: toast shown, toggle stayed off, no crash); the Pacific
+> 8am timezone math (from the original precision design, now superseded by the digest
+> model but the same round-trip technique is reused for calendar-day comparisons) was
+> unit-verified correct across both the PDT and PST offsets.
+> **NEXT STEP, not yet done**: Dave flips the Settings toggle fresh on the real deployed
+> code, grants the permission prompt, we verify a `push_subscriptions` row lands via REST,
+> then send a manual test push through `lib/push.ts` directly (not waiting for the cron)
+> and Dave confirms on his phone whether it actually arrived. Until that happens this
+> is BUILT, not SHIPPED.
+>
+> Previous update 2026-08-30 (same day, session continued past Calendar Phase 2) — **two
 > bugs found, fixed, live-verified, and pushed.** **Bug 1 — Board rows stuck on "Still
 > sorting…" forever** (two TC Dental Lab rows: "Reviewing Hiro production sheet" and "Redo
 > Dr. Cary treatment plan…"), swipe-delete panel also left exposed at rest on the same two
