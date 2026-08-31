@@ -158,6 +158,44 @@ function buildDayBlocks(dayEntries: BoardEntry[], dayWindows: DayWindow[]): DayB
   return blocks.sort((a, b) => a.sortKey - b.sortKey);
 }
 
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
+
+function axisHourLabel(h: number): string {
+  const hour12 = ((h + 11) % 12) + 1;
+  return `${hour12}${h < 12 ? "am" : "pm"}`;
+}
+
+// Calendar hour-grid collision flag (item 5): does this deadline's local
+// clock time fall inside a silent protected window? Mirrors notify.ts's
+// isWindowActive minute-math (including the overnight-wrap branch Sleep
+// needs: 22:00 start > 05:30 end) — sanity-checked against exactly this
+// early-morning-vs-overnight-Sleep case before writing this. Deliberately a
+// separate, decoupled implementation, not an import from notify.ts: this is
+// a purely visual render-time computation with no relationship to the
+// notification-hold/urgency system, per both calendar handoffs. Reuses
+// `ProtectedWindow.silent` directly (the same field notify.ts reads) —
+// no second classification of "which windows count."
+function collidesWithSilentWindow(deadlineAt: string, windows: ProtectedWindow[]): boolean {
+  const minutesNow = hhmmToMinutes(
+    `${new Date(deadlineAt).getHours()}:${new Date(deadlineAt).getMinutes()}`,
+  );
+  return windows.some((w) => {
+    if (!w.silent || !w.start || !w.end) return false;
+    const startMins = hhmmToMinutes(w.start);
+    const endMins = hhmmToMinutes(w.end);
+    if (startMins <= endMins) return minutesNow >= startMins && minutesNow < endMins;
+    return minutesNow >= startMins || minutesNow < endMins; // overnight wrap (e.g. Sleep)
+  });
+}
+
+const GRID_START_HOUR = 6;
+const GRID_END_HOUR = 22;
+const GRID_ROW_PX = 36;
+const GRID_HEIGHT = (GRID_END_HOUR - GRID_START_HOUR) * GRID_ROW_PX;
+const GRID_PILL_HEIGHT = 30;
+
 export default function CalendarClient({
   entries: initialEntries,
   windows,
@@ -173,7 +211,7 @@ export default function CalendarClient({
   people: Person[];
   evidence: TrustEvidence[];
 }) {
-  const [view, setView] = useState<"week" | "day" | "month">("week");
+  const [view, setView] = useState<"week" | "day" | "month" | "grid">("week");
   const [weekOffset, setWeekOffset] = useState(0);
   const [dayCursor, setDayCursor] = useState(() => new Date());
   const [monthCursor, setMonthCursor] = useState(() => {
@@ -466,7 +504,16 @@ export default function CalendarClient({
         >
           Month
         </button>
-        {view === "week" && weekOffset !== 0 && (
+        <button
+          type="button"
+          className={`toggle-pill${view === "grid" ? " active" : ""}`}
+          role="tab"
+          aria-selected={view === "grid"}
+          onClick={() => setView("grid")}
+        >
+          Calendar
+        </button>
+        {(view === "week" || view === "grid") && weekOffset !== 0 && (
           <button type="button" className="toggle-pill today-jump" onClick={() => setWeekOffset(0)}>
             Today ({weekLabel})
           </button>
@@ -595,6 +642,113 @@ export default function CalendarClient({
             })}
           </div>
           <div className="month-legend">Tap a day to open it · dot = deadline that day</div>
+        </>
+      )}
+
+      {view === "grid" && (
+        <>
+          <div className="grid-legend">
+            <span className="grid-legend-item"><span className="gd" style={{ background: "var(--signal)" }} />Deadline</span>
+            <span className="grid-legend-item"><span className="gd" style={{ background: "var(--noise)" }} />Protected</span>
+            <span className="grid-legend-item"><span className="gd" style={{ background: "var(--bad)" }} />Collides with a protected window</span>
+            <span className="grid-legend-item"><span className="gd" style={{ background: "var(--now)" }} />Now</span>
+          </div>
+          <div className="grid-wrap">
+            <div className="grid-inner">
+              <div className="grid-hour-axis">
+                {Array.from({ length: GRID_END_HOUR - GRID_START_HOUR }, (_, i) => GRID_START_HOUR + i).map((h) => (
+                  <div key={h} className="grid-hour-label">
+                    {axisHourLabel(h)}
+                  </div>
+                ))}
+              </div>
+              {days.map(({ date, dayEntries, dayWindows }) => {
+                const isToday = sameDay(date, today);
+                const timedWindows = dayWindows.filter(({ window: w }) => w.start && w.end);
+                const untimedWindows = dayWindows.filter(({ window: w }) => !w.start || !w.end);
+                const timedEntries = dayEntries.filter((e) => !e.deadlineAllDay && e.deadlineAt);
+                // All-day deadlines have no real clock time — same rule as
+                // untimed windows: shown as a chip, never a fabricated slot.
+                const allDayEntries = dayEntries.filter((e) => e.deadlineAllDay);
+                const nowHour = today.getHours() + today.getMinutes() / 60;
+                const showNow = isToday && nowHour >= GRID_START_HOUR && nowHour < GRID_END_HOUR;
+                return (
+                  <div key={date.toISOString()} className={`grid-day-col${isToday ? " is-today" : ""}`}>
+                    <div className="grid-day-head">
+                      {date.toLocaleDateString([], { weekday: "short" }).toUpperCase()}
+                      <span className="num">{date.getDate()}</span>
+                    </div>
+                    <div className="grid-track">
+                      {(untimedWindows.length > 0 || allDayEntries.length > 0) && (
+                        <div className="grid-untimed-stack">
+                          {untimedWindows.map(({ window: w, tentative }, i) => (
+                            <div key={`w${i}`} className={`grid-band untimed${tentative ? " tentative" : ""}`}>
+                              {w.label}
+                            </div>
+                          ))}
+                          {allDayEntries.map((e) => (
+                            <button
+                              key={e.id}
+                              type="button"
+                              className="grid-band deadline-chip"
+                              onClick={() => setEditing(e)}
+                            >
+                              {e.summary}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {timedWindows.map(({ window: w, tentative }, i) => {
+                        const top = clamp((hhmmToMinutes(w.start!) / 60 - GRID_START_HOUR) * GRID_ROW_PX, 0, GRID_HEIGHT);
+                        const bottom = clamp((hhmmToMinutes(w.end!) / 60 - GRID_START_HOUR) * GRID_ROW_PX, 0, GRID_HEIGHT);
+                        return (
+                          <div
+                            key={`t${i}`}
+                            className={`grid-band${tentative ? " floats" : ""}`}
+                            style={{ top, height: Math.max(16, bottom - top) }}
+                          >
+                            {w.label}
+                          </div>
+                        );
+                      })}
+                      {timedEntries.map((e) => {
+                        const d = new Date(e.deadlineAt!);
+                        const hourDecimal = d.getHours() + d.getMinutes() / 60;
+                        const top = clamp(
+                          (hourDecimal - GRID_START_HOUR) * GRID_ROW_PX,
+                          0,
+                          GRID_HEIGHT - GRID_PILL_HEIGHT,
+                        );
+                        const collides = collidesWithSilentWindow(e.deadlineAt!, windows);
+                        return (
+                          <button
+                            key={e.id}
+                            type="button"
+                            className={`grid-pill${e.done ? " done" : ""}`}
+                            style={{ top, height: GRID_PILL_HEIGHT }}
+                            onClick={() => setEditing(e)}
+                          >
+                            {collides && (
+                              <span className="flag" aria-label="Collides with a protected window">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3} strokeLinecap="round">
+                                  <line x1="12" y1="8" x2="12" y2="13" />
+                                  <circle cx="12" cy="16.5" r="0.5" fill="#fff" />
+                                </svg>
+                              </span>
+                            )}
+                            {e.summary}
+                          </button>
+                        );
+                      })}
+                      {showNow && (
+                        <div className="grid-now-line" style={{ top: (nowHour - GRID_START_HOUR) * GRID_ROW_PX }} />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </>
       )}
 

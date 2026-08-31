@@ -31,6 +31,8 @@
   --ask: #5b6ee8;
   --ask-tint: #eef0fd;
   --ask-text: #3d4cb0;
+  /* Calendar hour-grid (2026-08-30, item 5): the "now" line accent. */
+  --now: #2e6fcf;
   --display: var(--font-display), "Space Grotesk", system-ui, sans-serif;
   --body: var(--font-body), "Inter", system-ui, sans-serif;
   --mono: var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
@@ -1385,6 +1387,206 @@ select:focus-visible {
   text-align: center;
   padding: 0 var(--px);
   margin-bottom: 8px;
+}
+
+/* Calendar (hour-grid) view (calendar-phase2-item5): Google-Calendar-style
+   week grid — same 7-day window as Week view, different visualization. */
+.grid-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--px) 4px;
+}
+.grid-inner {
+  display: flex;
+  min-width: 760px;
+}
+.grid-hour-axis {
+  width: 40px;
+  flex-shrink: 0;
+  padding-top: 34px;
+}
+.grid-hour-label {
+  height: 36px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--dim);
+  transform: translateY(-6px);
+}
+.grid-day-col {
+  width: 98px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--line);
+  position: relative;
+}
+.grid-day-col:last-child {
+  border-right: 1px solid var(--line);
+}
+.grid-day-head {
+  height: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.grid-day-head .num {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 1px;
+}
+.grid-day-col.is-today {
+  background: rgba(46, 111, 207, 0.045);
+}
+.grid-day-col.is-today .grid-day-head {
+  color: var(--now);
+}
+.grid-day-col.is-today .grid-day-head .num {
+  color: var(--now);
+}
+.grid-track {
+  position: relative;
+  height: 576px;
+  background-image: repeating-linear-gradient(to bottom, transparent, transparent 35px, var(--line) 35px, var(--line) 36px);
+}
+.grid-band {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--muted);
+  padding: 2px 5px;
+  overflow: hidden;
+  background: var(--noise-tint);
+  border: 1px solid var(--noise);
+  border-left-width: 3px;
+  pointer-events: none;
+}
+.grid-band.floats {
+  border-style: dashed;
+  opacity: 0.75;
+}
+.grid-untimed-stack {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.grid-band.untimed {
+  position: static;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--dim);
+  padding: 2px 5px;
+  background: var(--card);
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+}
+.grid-band.deadline-chip {
+  position: static;
+  width: 100%;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--signal-text);
+  padding: 2px 5px;
+  background: var(--signal-tint);
+  border: 1px solid var(--signal);
+  border-radius: 5px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.grid-pill {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 6px;
+  background: var(--signal-tint);
+  border: 1px solid var(--signal);
+  border-left-width: 3px;
+  padding: 3px 5px;
+  font-size: 9.5px;
+  line-height: 1.25;
+  color: var(--signal-text);
+  font-weight: 500;
+  z-index: 3;
+  text-align: left;
+  cursor: pointer;
+}
+.grid-pill.done {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.grid-pill .flag {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 0 2px var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.grid-pill .flag svg {
+  width: 7px;
+  height: 7px;
+}
+.grid-now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1.5px solid var(--now);
+  z-index: 5;
+  pointer-events: none;
+}
+.grid-now-line::before {
+  content: "";
+  position: absolute;
+  left: -3.5px;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--now);
+}
+.grid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0 var(--px);
+  margin-bottom: 12px;
+}
+.grid-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 4px 9px;
+  border-radius: 100px;
+}
+.grid-legend-item .gd {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ===== TEAM ===== */
