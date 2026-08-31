@@ -1,7 +1,29 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-31** (same session, continued into Web Push) — **Web Push
+> Last updated: **2026-08-31** (same session, continued past Web Push) — **two small UI
+> fixes, both shipped and confirmed live: Board row titles truncate to one line** (Apple
+> Notes style — `.row-text` was wrapping to multiple lines; now `white-space: nowrap` +
+> `text-overflow: ellipsis`, full text still one tap away via EntrySheet, nothing lost).
+> Committed `328cba4` — **first deploy attempt was a no-op that Dave correctly caught**
+> ("it didn't pull up"): the fix only ever existed in local dev preview, never
+> committed/pushed, so there was nothing live for him to see — a process gap on my
+> part, not a bug. Confirmed live the second time by pulling the actual deployed
+> stylesheet asset (not just the page HTML) and finding the rule verbatim.
+> **Removed the "Your 20%"/"Delegate" text badge from Board rows** (Dave: "it is not
+> need") — redundant with the section header and the row's left-border color, which
+> already convey the same classification. Removed the whole `onToggleType`/
+> `isTypeToggleable` plumbing end-to-end (BoardClient → BoardSection → EntryRow) rather
+> than just hiding the badge, since nothing else called it; same for the `.type-badge`
+> CSS and a now-unreachable `.type-badge` touch-guard (plus its now-unused `target` param)
+> in `SwipeRow`'s `start()`. **Known, accepted side effect**: the badge was also the sole
+> tap target for the quick flip-to-delegate shortcut that auto-opened the assign sheet —
+> that specific one-tap path is gone, but reclassifying is still available via long-press
+> (assign sheet) or the entry sheet, so nothing is actually stranded. Committed `84a9698`.
+> `tsc`/lint/`next build` clean on both (same 6 pre-existing errors, unchanged, just
+> shifted line numbers from the removed code).
+>
+> Previous update 2026-08-31 (same session, continued into Web Push) — **Web Push
 > SHIPPED: built (all 3 phases), committed `34a886b`/`dfa81de` → GitHub `59ed6f8`/
 > `18f103f`, deployed, and live-verified end to end** — a real subscription row landed
 > (`push_subscriptions`, `fcm.googleapis.com` endpoint), a manual test push sent through
