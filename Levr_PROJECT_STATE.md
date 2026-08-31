@@ -1,7 +1,32 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-31** (same session, continued past Web Push) — **two small UI
+> Last updated: **2026-08-31** (same session, continued past the badge removal) — **⚠️
+> Reserved investigation, NOT a shipped fix, no code changed**: right after the
+> Your-20%/Delegate badge removal shipped, Dave reported the bottom nav "moving" and
+> being unable to scroll the Board on his phone. Traced a concrete, verifiable lead
+> before touching anything: `document.documentElement.scrollHeight` on the live Board at
+> mobile viewport was only **34px** taller than the viewport — down from a comfortable
+> margin, because removing the badge shrank every row by ~30px and the Board currently
+> only has 4 items. A page with only a sliver of scrollable overflow is a known trigger
+> for iOS Safari's elastic "rubber-band" bounce making a `position: fixed` bottom nav
+> visibly jump during the snap-back — matches both symptoms Dave described. **Could not
+> verify the actual bug on my end** — this is a WebKit/iOS-only rendering quirk, and my
+> browser tooling here is Chromium-based; I can reproduce the thin-scroll-margin *cause*
+> but not the visual glitch itself. Presented two fix options (quick patch: pad the
+> screen so scroll room stays comfortable regardless of item count; proper fix: restructure
+> the shared app shell — `app/layout.tsx` + `.screen`/`.bottom-nav` in `globals.css` — so
+> header+nav are pinned and only the middle content scrolls in its own pane, removing the
+> whole bug class but touching every screen, including `scrollIntoView` flash-on-capture
+> behavior in `BoardClient.tsx` that currently assumes page-level scroll). Dave picked
+> "proper fix," but **before implementation started, he retested on his phone and it
+> worked normally** — stopped immediately, no changes made. **Reserved, not resolved**:
+> if this resurfaces (most likely again when the Board's item count is small enough that
+> content barely fills one screen), start here — the 34px-margin measurement technique
+> (`document.documentElement.scrollHeight - clientHeight` at mobile viewport) is the fast
+> way to confirm the same root cause before deciding between the two options above.
+>
+> Previous update 2026-08-31 (same session, continued past Web Push) — **two small UI
 > fixes, both shipped and confirmed live: Board row titles truncate to one line** (Apple
 > Notes style — `.row-text` was wrapping to multiple lines; now `white-space: nowrap` +
 > `text-overflow: ellipsis`, full text still one tap away via EntrySheet, nothing lost).
