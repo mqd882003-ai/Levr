@@ -901,7 +901,9 @@ select:focus-visible {
   font-size: 16px;
   line-height: 1.4;
   color: var(--text);
-  word-wrap: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .row.done .row-text {
   color: var(--dim);
