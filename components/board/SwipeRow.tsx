@@ -114,12 +114,9 @@ export default function SwipeRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealed]);
 
-  const start = (clientX: number, isTouch: boolean, target: EventTarget | null) => {
+  const start = (clientX: number, isTouch: boolean) => {
     // Leave the left screen edge to Safari's native back-swipe.
     if (isTouch && clientX < EDGE_GUARD) return;
-    // The type badge is its own tap target — a press starting there should
-    // neither arm the hold nor start a swipe (board-gestures-handoff.md §3).
-    if (target instanceof Element && target.closest(".type-badge")) return;
     drag.current = {
       active: true,
       startX: clientX,
@@ -190,7 +187,7 @@ export default function SwipeRow({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    start(e.clientX, false, e.target);
+    start(e.clientX, false);
     const mv = (ev: MouseEvent) => move(ev.clientX);
     const up = () => {
       end();
@@ -231,7 +228,7 @@ export default function SwipeRow({
         onKeyDown={(e) => {
           if (e.key === "Enter") onOpen();
         }}
-        onTouchStart={(e) => start(e.touches[0].clientX, true, e.target)}
+        onTouchStart={(e) => start(e.touches[0].clientX, true)}
         onTouchMove={(e) => move(e.touches[0].clientX)}
         onTouchEnd={end}
         onTouchCancel={end}

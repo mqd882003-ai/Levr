@@ -995,50 +995,6 @@ select:focus-visible {
   transform: scale(0.98);
   transition: transform 0.15s ease, background 0.15s ease;
 }
-/* Your 20% / Delegate type badge — tap to flip (static for personal_project). */
-.type-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 4px 9px;
-  border-radius: 100px;
-  margin-top: 7px;
-  cursor: pointer;
-  border: 1px solid transparent;
-  user-select: none;
-  -webkit-user-select: none;
-  background: none;
-}
-.type-badge.signal {
-  background: var(--signal-tint);
-  color: var(--signal-text);
-  border-color: var(--signal);
-}
-.type-badge.noise {
-  background: var(--noise-tint);
-  color: var(--muted);
-  border-color: var(--line);
-}
-.type-badge .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.type-badge.signal .dot {
-  background: var(--signal);
-}
-.type-badge.noise .dot {
-  background: var(--noise);
-}
-.type-badge.static {
-  cursor: default;
-  opacity: 0.75;
-}
 /* Assign sheet: the task being handed off, as context under the title. */
 .assign-context {
   font-size: 13px;

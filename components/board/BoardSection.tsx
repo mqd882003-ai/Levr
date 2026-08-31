@@ -16,8 +16,6 @@ export default function BoardSection({
   onDelete,
   onOpen,
   onLongPress,
-  onToggleType,
-  isTypeToggleable,
   intentHandlers,
 }: {
   title: string;
@@ -32,8 +30,6 @@ export default function BoardSection({
   onDelete: (entry: BoardEntry) => Promise<boolean>;
   onOpen: (entry: BoardEntry) => void;
   onLongPress?: (entry: BoardEntry) => void;
-  onToggleType?: (entry: BoardEntry) => void;
-  isTypeToggleable?: (entry: BoardEntry) => boolean;
   intentHandlers?: IntentHandlers;
 }) {
   return (
@@ -54,8 +50,6 @@ export default function BoardSection({
             onDelete={onDelete}
             onOpen={onOpen}
             onLongPress={onLongPress}
-            onToggleType={onToggleType}
-            typeToggleable={isTypeToggleable ? isTypeToggleable(e) : false}
             intentHandlers={intentHandlers}
           />
         ))
