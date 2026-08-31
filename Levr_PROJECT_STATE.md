@@ -1,7 +1,56 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-31** (same session, continued past the badge removal) — **⚠️
+> Last updated: **2026-08-31** (same session, continued into the Home glass redesign) —
+> **Part 1 of the approved glass-redesign handoff SHIPPED: mic moved out of the capture
+> card to a standalone glass button below it, Home only.** Committed `01a235c`.
+> Reference: `levr-mic-moved-down.html` (Dave-supplied mockup) +
+> `levr-glass-handoff-combined.md` (Part 1 approved/build-now; Part 2 — rolling glass out
+> to Board/Team/Settings/Calendar — is a roadmap, explicitly NOT this pass, its own
+> stop-for-review gate per step when it happens).
+> **What shipped**: capture card, mic button, and bottom nav get a frosted glass material
+> (`backdrop-filter` blur + translucent border) via new `--glass-*` tokens in
+> `globals.css`, reusing `--signal`/`--signal-text` as the tint — no new brand color.
+> Mic sits in `.mic-standalone`, a `flex:1` area between the card and the nav that
+> absorbs whatever space is left (never a fixed offset) — verified safe on both a tall
+> viewport and an iPhone-SE-height one, same lesson as the earlier bottom-nav
+> scroll/overlap bug logged below. **Iterated live with Dave to the final values**: card
+> reworked from amber-tinted glass to **white** glass ("from the original design"); mic
+> nudged higher (a modest padding-bias, NOT a large one — a first larger attempt
+> reintroduced the short-screen overflow bug, caught via the same scrollHeight-vs-
+> viewport measurement technique and dialed back until it measured zero overflow again);
+> mic sized up 20% then back down 10% net (final: 69px button, 95px pulse ring, 28px
+> icon) with a brighter/lighter gradient + soft outer glow per "little more light."
+> **Fallback logic untouched, not rebuilt**: standalone/PWA or no Web Speech still just
+> focuses the textarea — ported, not rewritten, per the handoff's explicit warning
+> (`levr-requirements.md` §Voice input). Added the listening state the handoff asked for
+> (red button, animated waveform bars, "Listening…" caption) for when Web Speech
+> genuinely is available; both the pulse ring and the bars respect
+> `prefers-reduced-motion`.
+> **Caught before shipping — CaptureBox is shared with Board's quick-add sheet**
+> (`onCaptured` prop), which the handoff explicitly says to leave alone. Branched the
+> JSX on `isHome = !onCaptured` so quick-add keeps its exact original compact layout
+> (mic back in the row, hint text, flat white card) — verified live by opening the
+> sheet, pixel-identical to before.
+> **Dave asked for an Apple-HIG-specialist pass afterward** — loaded the `apple-design`
+> skill and checked against it point by point rather than eyeballing. Already correct:
+> press feedback (`.pressable:active` already matched Apple's exact `scale(0.97)`
+> spec), blur hierarchy (bigger surface = more blur, card 20px vs mic 14px), and
+> typography tracking (negative on the large greeting, positive on small mono labels —
+> already followed the size-specific rule). **Two real gaps found and fixed**:
+> `prefers-reduced-transparency` was unhandled anywhere in this codebase despite this
+> being the first real translucent material shipped — added a solid/no-blur fallback for
+> the card, mic, and nav, verified by literally injecting the fallback CSS and
+> screenshotting it. Home's entrance animation (`riseIn`) and the ambient `home-glow`
+> drift had no `prefers-reduced-motion` guard, inconsistent with the mic's own
+> animations — extended the same guard to both (opacity-only cross-fade, glow stops
+> drifting). **Not implemented, flagged only**: `prefers-contrast: more` — no existing
+> convention in this codebase for it, didn't invent one unprompted.
+> `tsc`/lint/`next build` clean throughout (2 pre-existing lint errors in
+> `CaptureBox.tsx`, confirmed unrelated via `git stash` diff against baseline, same ones
+> already on record from earlier in this file).
+>
+> Previous update 2026-08-31 (same session, continued past the badge removal) — **⚠️
 > Reserved investigation, NOT a shipped fix, no code changed**: right after the
 > Your-20%/Delegate badge removal shipped, Dave reported the bottom nav "moving" and
 > being unable to scroll the Board on his phone. Traced a concrete, verifiable lead
