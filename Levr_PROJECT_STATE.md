@@ -1,11 +1,13 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-30/31** (same session, continued into Web Push) — **Web Push
-> built (all 3 phases), committed `34a886b`, about to be pushed/deployed — NOT YET
-> verified live.** The on-device round trip (toggle → subscription row → real push
-> landing) hasn't been confirmed yet; that's the very next step after this deploy, not
-> done.
+> Last updated: **2026-08-31** (same session, continued into Web Push) — **Web Push
+> SHIPPED: built (all 3 phases), committed `34a886b`/`dfa81de` → GitHub `59ed6f8`/
+> `18f103f`, deployed, and live-verified end to end** — a real subscription row landed
+> (`push_subscriptions`, `fcm.googleapis.com` endpoint), a manual test push sent through
+> `lib/push.ts` directly (not the cron) returned `{"sent":1,"failed":0}`, and **Dave
+> confirmed on his phone it actually arrived** — not just a 200 from the push service,
+> the real thing.
 > **⚠️ Vercel plan ceiling — READ BEFORE touching any cron/scheduling work**: Levr is on
 > **Hobby**, confirmed directly with Dave (not assumed). Hobby enforces a once-per-day
 > cron floor — any more-frequent schedule fails at deploy time (this is the SAME failure
@@ -53,13 +55,23 @@
 > disabled "Push notifications — Soon" row under Communication channels, since that one
 > describes a different, unbuilt concept (pushing to a *team member's* installed app);
 > renamed it "Push to team" to disambiguate the two rows.
-> **VAPID keys**: Dave said they were already in `.env.local` + Vercel; they weren't in
-> `.env.local` — his pasted values had lost their line breaks in transit. Reconstructed
-> the split from byte-length math (87 chars = a 65-byte EC point, 43 chars = a 32-byte
-> scalar, both base64url w/o padding — landed exactly, no ambiguity) and validated
-> through `web-push`'s own `setVapidDetails()`, which accepted the format. That confirms
-> format only, not that the two keys are a genuinely matched pair — the live send test is
-> the real proof, still pending.
+> **VAPID keys, the actual saga**: Dave said they were already in `.env.local` + Vercel;
+> neither was true. First reconstructed a split from Dave's garbled paste (byte-length
+> math landed exactly — 87/43 chars — and `web-push`'s own `setVapidDetails()` accepted
+> the format), but that only ever proved format, never that Vercel actually had ANY of
+> the three vars. First live test failed with "missing VAPID public key" — confirmed root
+> cause by grepping the actual deployed client bundle: the public key string was absent
+> entirely (0 matches), proving Vercel's env never had it, not a bad key. Dave then found
+> a third-party "VAPID key generator" website and generated a new pair there — caught
+> before using it that its `subject` field was malformed (`"mailto: <email>"` — space +
+> angle brackets, not valid JWT `sub` syntax) and that trusting a random site with a
+> private key is an unnecessary risk when the project already has `web-push` installed.
+> Generated a clean authoritative pair via `webpush.generateVAPIDKeys()` directly instead,
+> validated the same way, saved to `.env.local`. Dave added all three to the Vercel
+> dashboard and redeployed — confirmed via REST + a real send that this pair works.
+> (Note for later: the subscription's endpoint is `fcm.googleapis.com`, i.e. Chrome's push
+> service, not Apple's `web.push.apple.com` — worth a closer look if push ever behaves
+> differently specifically through Safari/the iOS home-screen install vs. a Chrome tab.)
 > **Found `Levr.txt` in the repo root** (Dave's own scratch notes) with a live Supabase
 > access token and DB password in plain text, untracked but NOT gitignored — added
 > `/Levr.txt` to `.gitignore` this session so it can't accidentally get swept into a
@@ -73,11 +85,10 @@
 > 8am timezone math (from the original precision design, now superseded by the digest
 > model but the same round-trip technique is reused for calendar-day comparisons) was
 > unit-verified correct across both the PDT and PST offsets.
-> **NEXT STEP, not yet done**: Dave flips the Settings toggle fresh on the real deployed
-> code, grants the permission prompt, we verify a `push_subscriptions` row lands via REST,
-> then send a manual test push through `lib/push.ts` directly (not waiting for the cron)
-> and Dave confirms on his phone whether it actually arrived. Until that happens this
-> is BUILT, not SHIPPED.
+> **Nothing queued next** for Web Push unless Dave asks for something new — all 3 phases
+> shipped and confirmed live. Standing reminder: the once-daily digest model (not
+> per-minute precision) is a Hobby-plan ceiling, not a design choice — revisit the timing
+> model if/when the project moves to Pro.
 >
 > Previous update 2026-08-30 (same day, session continued past Calendar Phase 2) — **two
 > bugs found, fixed, live-verified, and pushed.** **Bug 1 — Board rows stuck on "Still
