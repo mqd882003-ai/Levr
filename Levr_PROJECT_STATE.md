@@ -1,7 +1,58 @@
 # Levr — Project State
 
 > Backup of build state and session knowledge. Update at the end of each working session.
-> Last updated: **2026-08-30** (same day, session continued to completion) — **Calendar
+> Last updated: **2026-08-30** (same day, session continued past Calendar Phase 2) — **two
+> bugs found, fixed, live-verified, and pushed.** **Bug 1 — Board rows stuck on "Still
+> sorting…" forever** (two TC Dental Lab rows: "Reviewing Hiro production sheet" and "Redo
+> Dr. Cary treatment plan…"), swipe-delete panel also left exposed at rest on the same two
+> rows. Traced root cause via REST before touching anything: both rows had genuinely
+> completed Tier 1 **and** Tier 2 classification (`tier2_at` stamped, matching sibling rows
+> showing `tier2_status: "revised"`) — the `corrections` table showed the founder had
+> manually corrected `is_leverage` on each *after* Tier 2 finished. `saveEntry` and
+> `applyReviewSuggestion` (`app/board/actions.ts`) reset `tier2_status` to **null** on a
+> user edit (meant to clear a stale disagreement flag) but never re-run Tier 2 — so the row
+> reads as permanently "still processing" to `EntryRow`'s `tier2Status === null` check, since
+> nothing ever writes a resolved value back. Fixed: those three write sites now stamp
+> `"confirmed"` instead of `null` (the founder's own correction is authoritative, no further
+> Tier 2 opinion needed); matched in `BoardClient`'s optimistic patch for the same flow.
+> Verified `EntryRow`'s processing check and `BoardClient`'s `hasPending` poll both already
+> treat any non-null value as resolved — no changes needed there. Swipe-panel bug was
+> unrelated (not tier2-linked): `SwipeRow`'s `revealed` state only ever reset on tapping the
+> *same* row again — nothing closed it when interaction moved elsewhere. Fixed with a
+> `pointerdown` listener (capture phase, active only while revealed) that closes the row on
+> any interaction outside its own `.row-wrap`. Backfilled the two real stuck rows to
+> `tier2_status: "confirmed"` via REST, verified before/after. Committed `340ea30`.
+> **Bug 2 — Tier 1 over-split a single capture into overlapping/duplicate chunks**: a real
+> TC Dental Lab capture produced two board rows both covering the same bone-scan/Dr.
+> Bodyfelt/Joe concern (one chunk was literally a duplicated substring of another's tail).
+> Tightened the Haiku splitting prompt in `lib/classify.ts` (a shared subject worded two
+> ways is elaboration, not a new concern; summaries must describe only what's unique to
+> that chunk) — confirmed via 6 live repro runs that this **reduces but doesn't eliminate**
+> the over-split (still happened ~1 in 3 runs), so added a code-side safety net,
+> `detectChunkOverlaps`: flags a chunk when it shares a `mentioned_people` name or ≥50% of
+> its summary's significant terms (generic task verbs filtered out) with an earlier chunk
+> from the same capture. Reuses the existing `tier2_status: "flagged"` + reason-chip
+> pattern rather than a new mechanism; flagged chunks are excluded from the async Tier 2
+> pass in `app/api/classify/route.ts` (Tier 2 unconditionally overwrites `tier2_status` on
+> completion, which would erase the flag within seconds). Confirmed genuinely-separate
+> multi-chunk captures (different businesses; same business, different people) stayed
+> clean and unflagged across repeated live runs — no suppression of legitimate splits.
+> Committed `f068970`. **Both commits pushed** via `git subtree push --prefix=levr origin
+> main` (GitHub tip `5358d50`/`68b9003`) — verified past the push exit code: commit
+> subjects/order match, and `git diff HEAD:levr origin/main` came back empty (byte-identical
+> trees). **Live-verified, not just pushed**: the swipe-panel fix's exact minified closure
+> (`pointerdown` capture-phase listener + `.row-wrap` containment check) found intact in the
+> deployed `/board` JS bundle. The overlap guard is server-only (API route + server action,
+> never shipped to the client, so a bundle grep structurally can't prove it) — verified
+> instead with a real POST to production `/api/classify` reproducing the exact split, and
+> confirmed via REST that both duplicate chunks landed `tier2_status: "flagged"` with the
+> expected reason text. Test entries (4) and their checklist items (3) deleted after —
+> the pre-existing "Case Review" project one of them fuzzy-matched into was **not** touched,
+> since a real prior entry also references it (checked before deleting anything).
+> `tsc`/lint/`next build` clean on both fixes; the 6 pre-existing React-Compiler lint errors
+> (unrelated code, confirmed pre-existing via `git stash` diff) are unchanged.
+>
+> Previous update 2026-08-30 (same day, session continued to completion) — **Calendar
 > Phase 2 item 5 — hour-grid Calendar view — shipped. This was the last of the four
 > calendar views; Day/Week/Month/Calendar are all now live and reviewed.** **Pre-item
 > sanity check** (this item's core job is the collision flag, and item 3's sanity check
