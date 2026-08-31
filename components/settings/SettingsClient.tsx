@@ -6,8 +6,11 @@ import {
   addBusiness,
   clearAllData,
   removeBusiness,
+  subscribePush,
+  unsubscribePush,
   updateSettings,
 } from "@/app/settings/actions";
+import { pushSupported, subscribeToPush, unsubscribeFromPush } from "@/lib/pushClient";
 import Toast, { type ToastState } from "@/components/ui/Toast";
 import type { AppSettings, Business } from "@/lib/types";
 
@@ -44,15 +47,19 @@ const TRASH = (
 export default function SettingsClient({
   initialSettings,
   initialBusinesses,
+  initialPushEnabled,
 }: {
   initialSettings: AppSettings;
   initialBusinesses: Business[];
+  initialPushEnabled: boolean;
 }) {
   const router = useRouter();
   const [settings, setSettings] = useState(initialSettings);
   const [businesses, setBusinesses] = useState(initialBusinesses);
   const [newBiz, setNewBiz] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(initialPushEnabled);
+  const [pushBusy, setPushBusy] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -90,6 +97,42 @@ export default function SettingsClient({
       showToast(next ? "Slack enabled — webhook is configured server-side" : "Slack off");
     if (key === "autoNotes")
       showToast(next ? "I'll keep capability notes current from outcomes" : "Notes back to manual only");
+  };
+
+  // Web Push (013): the toggle itself is the required user gesture — nothing
+  // prompts for permission before this tap (handoff non-goal).
+  const togglePush = async () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    try {
+      if (pushEnabled) {
+        const endpoint = await unsubscribeFromPush();
+        if (endpoint) await unsubscribePush(endpoint);
+        setPushEnabled(false);
+        showToast("Push notifications off");
+        return;
+      }
+      if (!pushSupported()) {
+        showToast("Push isn't supported in this browser", "bad");
+        return;
+      }
+      const subscription = await subscribeToPush();
+      if (!subscription) {
+        showToast("Permission wasn't granted", "bad");
+        return;
+      }
+      const res = await subscribePush(subscription);
+      if (!res.ok) {
+        showToast(res.error ?? "Subscribe failed", "bad");
+        return;
+      }
+      setPushEnabled(true);
+      showToast("Push notifications on", "good");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Push setup failed", "bad");
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   const handleAddBusiness = async () => {
@@ -155,7 +198,11 @@ export default function SettingsClient({
     { key: "email", name: "Email", sub: "Fallback for longer asks.", available: true, on: true, toggleable: false },
     { key: "slack", name: "Slack", sub: "Only if a workspace is connected.", available: true, on: settings.slack_enabled, toggleable: true },
     { key: "whatsapp", name: "WhatsApp", sub: "Coming soon", available: false, on: false, toggleable: false },
-    { key: "push", name: "Push notifications", sub: "Once installed as an app", available: false, on: false, toggleable: false },
+    // Distinct from the "Push notifications" toggle above in the You block —
+    // that one is live now and pushes to Dave's own device; this row is a
+    // still-hypothetical future channel for reaching a TEAM MEMBER's own
+    // installed app, unrelated and unbuilt.
+    { key: "push", name: "Push to team", sub: "Once a teammate installs Levr", available: false, on: false, toggleable: false },
   ];
 
   return (
@@ -201,6 +248,18 @@ export default function SettingsClient({
                 on={settings.auto_notes}
                 label="Auto-update capability notes"
                 onToggle={() => void toggle("autoNotes")}
+              />
+            </div>
+            <div className="line">
+              <span className="grow">
+                Push notifications
+                <span className="sub">Deadline reminders on this installed app — nothing else uses this yet.</span>
+              </span>
+              <Switch
+                on={pushEnabled}
+                disabled={pushBusy}
+                label="Push notifications"
+                onToggle={() => void togglePush()}
               />
             </div>
           </div>

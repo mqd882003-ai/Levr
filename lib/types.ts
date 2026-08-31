@@ -132,6 +132,8 @@ export interface Entry {
   explicit_deadline: string | null;
   deadline_at: string | null; // parsed from explicit_deadline at save time (010) — null = undated
   deadline_all_day: boolean; // date known but no clock time stated
+  deadline_reminder_sent_at: string | null; // 013: web push — null = reminder not sent yet
+  decay_notified_at: string | null; // 014: web push A6 decay — null = not sent yet, ever
   stated_reason: string | null;
   capture_intent: CaptureIntent;
   intent_status: IntentStatus | null;
@@ -193,6 +195,15 @@ export interface AppSettings {
   notifications_enabled: boolean;
   slack_enabled: boolean;
   auto_notes: boolean;
+}
+
+// 013: Web Push — a subscribed browser (single-user app, realistically one
+// row). `keys` is the PushSubscription's p256dh/auth values verbatim.
+export interface PushSubscriptionRow {
+  id: string;
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  created_at: string;
 }
 
 // Flattened view model the Board screen works with (entry + joined names +

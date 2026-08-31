@@ -2,6 +2,7 @@ import { assessProtectedWindowUrgency } from "@/lib/tier2";
 import { sendEmail } from "@/lib/channels/email";
 import { sendSlack } from "@/lib/channels/slack";
 import { sendSms } from "@/lib/channels/sms";
+import { sendPush } from "@/lib/push";
 import { supabaseServer } from "@/lib/supabase/server";
 import type { AppSettings, Delegation, PersonalSettings, Person, ProtectedWindow } from "@/lib/types";
 
@@ -227,7 +228,37 @@ export async function flushHeldNotifications(): Promise<{ checked: number; sent:
   for (const delegation of held) {
     const result = await sendDelegationMessage(delegation);
     await recordNotifyOutcome(delegation.id, result);
-    if (result.sent) sent++;
+    if (result.sent) {
+      sent++;
+      // Phase 3 (013/014 web push): additive confirmation to Dave that a
+      // held message finally went out, so he doesn't have to check the
+      // delegation record to find out. Awaited (not fire-and-forget) since
+      // the whole cron route awaits this function before responding —
+      // firing it un-awaited risks the serverless function freezing before
+      // the push actually sends. Its own try/catch means a failure here
+      // never affects the (already-recorded) real send above.
+      await sendHeldFlushConfirmation(delegation);
+    }
   }
   return { checked: held.length, sent };
+}
+
+async function sendHeldFlushConfirmation(delegation: Delegation): Promise<void> {
+  try {
+    const db = supabaseServer();
+    const task = delegation.expected_outcome ?? "a task";
+    const person = await db
+      .from("people")
+      .select("name")
+      .eq("id", delegation.person_id)
+      .maybeSingle<Pick<Person, "name">>();
+    const personName = person.data?.name ?? "them";
+    await sendPush({
+      title: "Sent while you were away",
+      body: `${task} → ${personName}`,
+      url: "/board",
+    });
+  } catch (err) {
+    console.error("held-flush confirmation push failed:", err);
+  }
 }

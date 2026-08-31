@@ -59,6 +59,38 @@ export async function removeBusiness(id: string): Promise<{ ok: boolean; error?:
   }
 }
 
+// Web Push (013): upserts by endpoint so a resubscribe (cleared cache, new
+// device) replaces the row instead of piling up duplicates.
+export async function subscribePush(subscription: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
+      return { ok: false, error: "Invalid subscription" };
+    }
+    const db = supabaseServer();
+    const res = await db
+      .from("push_subscriptions")
+      .upsert({ endpoint: subscription.endpoint, keys: subscription.keys }, { onConflict: "endpoint" });
+    if (res.error) throw new Error(res.error.message);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Subscribe failed" };
+  }
+}
+
+export async function unsubscribePush(endpoint: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const db = supabaseServer();
+    const res = await db.from("push_subscriptions").delete().eq("endpoint", endpoint);
+    if (res.error) throw new Error(res.error.message);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Unsubscribe failed" };
+  }
+}
+
 // Full workspace reset (prototype parity): wipes entries, projects,
 // delegations, and people; reseeds the two default businesses; keeps settings.
 export async function clearAllData(): Promise<{ ok: boolean; error?: string }> {

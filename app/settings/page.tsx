@@ -30,15 +30,17 @@ export default async function SettingsPage() {
   }
 
   const db = supabaseServer();
-  const [settingsRes, businessesRes] = await Promise.all([
+  const [settingsRes, businessesRes, pushRes] = await Promise.all([
     db.from("app_settings").select("*").eq("id", true).maybeSingle<AppSettings>(),
     db.from("businesses").select("*").order("created_at"),
+    db.from("push_subscriptions").select("id", { count: "exact", head: true }),
   ]);
 
   return (
     <SettingsClient
       initialSettings={settingsRes.data ?? DEFAULT_SETTINGS}
       initialBusinesses={(businessesRes.data ?? []) as Business[]}
+      initialPushEnabled={(pushRes.count ?? 0) > 0}
     />
   );
 }
